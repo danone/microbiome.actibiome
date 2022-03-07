@@ -1,0 +1,389 @@
+---
+title: "Projet 1"
+author: "Ruben"
+date: "22/02/2022"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Librairies
+
+```{r,message=F,warning=F}
+
+## voir les sujets qui ont plusieurs points dans le temps
+## voir c'est quoi l'étude, si c'est des sujets sains
+## réseau à l'intérieur d'adulte
+## analyse par entérotype
+## voir par rapport aux abondances relatives
+## voir la distribution des espèces
+
+library(data.table)
+library(phyloseq)
+library(tidyverse)
+library(dplyr)
+library(ggpubr)
+library(rstatix)
+library(ggplot2)
+library(ggsignif)
+library(devtools)
+library(SpiecEasi)
+
+```
+
+## Import des données
+
+```{r,message=F,warning=F}
+
+#load(file = "curated_v3_otu_tax.rda")
+
+#otu <- data.frame(OTU)
+#taxo <- data.frame(TAX)
+
+```
+
+## Unicité échantillons et patients
+
+```{r,message=F,warning=F}
+
+
+otus <- otu
+tax <- taxo
+
+map <- sampleMetadata
+
+isUnique <- function(vector){
+                 return(!any(duplicated(vector)))
+           }
+isUnique(map$sample_id)
+
+isUnique(map$subject_id)
+
+nrow(map)
+
+ncol(otus)
+
+```
+Les échantillons et les patients ne sont pas uniques
+On a 20 000 lignes environ
+
+```{r,message=F,warning=F}
+
+## on enlève les échantillons dans tax qui contiennent des NA
+
+tax  <- tax[ , colSums(is.na(tax)) == 0]
+
+ncol(otus)
+
+# on filtre le patient SID32.PR.V.1 qui pose problème pour la suite de l'analyse
+
+otus <- otus %>%
+  select(-SID32.PR.V.1)
+
+map <- map %>%
+  filter(sample_id != 'SID32.PR.V.1')
+
+ncol(otus)
+
+nrow(map)
+```
+
+```{r,message=F,warning=F}
+# on sélectionne les échantillons uniques, par leur ID
+
+map <- map[!duplicated(map$sample_id), ]
+
+# si un patient a plusieurs échantillons, on prend celui qui aura le nombre de reads le plus élevé
+
+map <- unique(setDT(map)[order(subject_id, -number_reads)], by = "subject_id")
+
+
+isUnique(map$sample_id)
+
+isUnique(map$subject_id)
+
+nrow(map)
+
+```
+
+Les échantillons et les patients sont uniques
+
+On a 12661 échantillons = patients uniques
+
+## Contrôle Qualité des données
+
+```{r,message=F,warning=F}
+
+# on prend les échantillons en commun entre les otus et metamap
+
+common.ids <- intersect(map$sample_id, t(colnames(otus)))
+
+# on prend les échantillons en commun seulement
+otus <- otus[,common.ids]
+rownames(map) <- map$sample_id
+map <- merge(x = map, y = data.frame(common.ids), by.x = "sample_id", by.y="common.ids")
+
+# d'abord on enlève les souches qui sont présentes dans aucun échantillon
+
+map <- map[apply(map, 1, function(x) !all(x==0)),]
+
+# d'abord on drop les colonnes qui sont redondantes (study_condition = disease)
+map$study_condition <- NULL
+map$study_name <- NULL
+map$infant_age <- NULL
+
+# on sélectionne les microbiotes intestinaux seulement
+
+index <- which(map$body_site == 'stool')
+map <- map[index,]
+
+# on réordonne les 2 tableau
+
+nrow(map)
+
+# on save les fichiers après QC
+
+save(map, otus, tax, file="study_after_QC.rda")
+
+```
+Le dataset a 9515 avec, et 127 variables
+
+## Preparation des données
+
+```{r,message=F,warning=F}
+
+# On s'intéresse au genre bifidobactérium d'abord donc on les sélectionne
+
+index <- which(tax$Genus =='Bifidobacterium')
+bifid_especes <- rownames(tax)[index]
+
+# est-ce que les id entre map et otus sont égaux ?
+
+setequal(colnames(otus),t(map$sample_id))
+
+# est-ce que les id entre otus et taxonomie sont égaux ?
+
+setequal(rownames(otus),rownames(tax))
+
+nrow(map)
+
+```
+```{r,message=F,warning=F}
+# oui donc on sélectionne les abondances simplement par les num colonne
+
+abondances_bifid <- otus[index,]
+
+# Calcul des abondances totales
+
+abondances <- t(data.frame(t(colSums(otus))))
+abondances_total <- as.numeric(abondances)
+
+
+# du coup on calcul l'abondance total des bifids (genre)
+
+abondances_bifid_somme <- as.numeric(t(data.frame(t(colSums(abondances_bifid)))))
+abondances_bifid_somme <- as.numeric(abondances_bifid_somme/abondances_total)
+
+
+
+# on merge
+
+bifid <- data.frame(cbind(sample_id = rownames(abondances), reads_total = abondances_total, reads_bifid = abondances_bifid_somme))
+
+map <- merge(map,bifid, by = "sample_id")
+
+
+```
+
+Regrouper les maladies
+
+```{r,message=F,warning=F}
+# On va regrouper les facteurs dans la colonne "disease car il y a beaucoup de facteurs"
+
+map$disease <- factor(map$disease)
+
+# tout d'abord on simplifie les facteurs car il y a en a 23
+
+# tous les facteurs contenant "adenoma" :
+Adenoma <- grep("adenoma", levels(map$disease),fixed=TRUE,state.name, value = TRUE)
+
+# tous les facteurs contenant "CRC" :
+Colorectal <- c("metastases",grep("CRC", levels(map$disease),fixed=TRUE,state.name, value = TRUE))
+
+# les maladies métaboliques (T2D, hypercholestérolémie etc etc)
+
+Metabolic <- c("ACVD", "hypercholesterolemia", "hypertension", "hypertension;metastases", "IGT", "T2D")
+
+# enfin le bipolar disorder et 
+
+Bowel <- c("IBD")
+  
+Arthritis <- c("RA")
+
+levels(map$disease) <- list(
+  "Control" = c("healthy"),
+  "Adenoma" =  Adenoma,
+  "Colorectal" = Colorectal,
+  "Metabolic" = Metabolic,
+  "Bowel" = Bowel,
+  "Arthritis" = Arthritis,
+  "BD" = c('BD'))
+
+
+```
+
+## Analyse descriptive
+
+
+Preparation données pour boxplot antibiotiques
+```{r,message=F,warning=F}
+
+map_avec_antibio <- map
+
+# enlève les patients qui consomment antibio
+
+map <- map[which(map$antibiotics_current_use=="no"),]
+
+# on refait l'intersect
+
+# on prend les échantillons en commun entre les otus et metamap
+
+common.ids <- intersect(map$sample_id, t(colnames(otus)))
+
+# on prend les échantillons en commun seulement
+otus <- otus[,common.ids]
+rownames(map) <- map$sample_id
+map <- merge(x = map, y = data.frame(common.ids), by.x = "sample_id", by.y="common.ids")
+
+# on enlève les na 
+
+map_avec_antibio <- map_avec_antibio[!is.na(map_avec_antibio$antibiotics_current_use),]
+
+print("Echantillon sample sans les antibios (tout âge confondu) : ")
+nrow(map)
+print("Echantillon sample avec les antibios (tout âge confondu) : ")
+nrow(map_avec_antibio)
+
+# transformation facteur de la col antibiotics use
+map_avec_antibio$antibiotics_current_use <- factor(map_avec_antibio$antibiotics_current_use, levels=c("no", "yes"))
+
+```
+
+Boxplot antibiotiques
+
+```{r,message=F,warning=F}
+
+antibio <- map_avec_antibio[which(map_avec_antibio$age_category=="adult"),]
+
+
+p  <- ggboxplot(antibio, x="antibiotics_current_use", y="reads_bifid", fill="antibiotics_current_use",outlier.shape = NA )
+  
+p <- p + scale_fill_brewer(palette="Dark2",labels = c("No (4921 adults)", "Yes (52 adults)")) +
+  
+  theme_minimal() +
+  
+  labs(x = NULL, y = NULL, title = "Relative Abundance of Bifidobacterium",fill= "Takes Antibiotics") 
+
+p + stat_compare_means()
+
+## label.y = 0.22
+
+##### dans l'étude voir s'il ne s'agit que d'une étude
+##### challenge antibitics
+
+```
+
+
+Boxplot western/westernized
+```{r,message=F,warning=F}
+
+
+# on prend les échantillons en commun entre les otus et metamap
+
+common.ids <- intersect(map$sample_id, t(colnames(otus)))
+
+# on prend les échantillons en commun seulement
+otus <- otus[,common.ids]
+rownames(map) <- map$sample_id
+map <- merge(x = map, y = data.frame(common.ids), by.x = "sample_id", by.y="common.ids")
+
+# transformation facteur de la col non_westernized
+map$non_westernized  = factor(map$non_westernized, levels=c("no", "yes"))
+
+# on garde que ceux qui ne consomment pas d'antibio
+
+map <- map[which(map$antibiotics_current_use=="no" & map$age_category=="adult"),]
+
+p<-ggboxplot(map, x="non_westernized", y="reads_bifid", fill="non_westernized",outlier.shape = NA )
+  
+p <- p +
+  
+  scale_fill_brewer(palette="Dark2", labels = c("No (4774 adults)", "Yes (147 adults)")) +
+  
+  theme_minimal() +
+  
+  labs(x = NULL, y = NULL, title = "Relative Abundance of Bifidobacterium among Antibiotic non-takers",fill= "Non Westernized") +
+  
+  coord_cartesian(ylim=c(0,0.3))
+
+p+stat_compare_means(label.y = 0.28)
+
+
+```
+
+Boxplot healthy/disease
+```{r,message=F,warning=F}
+
+# on enlève les arthrithis car il y en a que 3
+
+p<-ggplot(map, aes(x=disease, y=reads_bifid, fill=disease))+ geom_boxplot(outlier.shape = NA) + labs(fill= "Disease (adults count)")
+  
+p <- p + scale_fill_brewer(palette="Dark2", labels = c("Control (4348)","Adenoma (29)", "Colorectal (74)", "Metabolic (320)", "Bowel (45)","Arthritis (85)", "BD (20)")) + 
+  
+  theme_minimal() + labs(x = NULL, y = NULL, title = "Relative Abundance of Bifidobacterium among Adults")+coord_cartesian(ylim=c(0,0.40)) + stat_compare_means(label.y = 0.35, label.x ="Adenoma")
+p
+
+```
+
+Distribution of Bifidobactérium en fonction de l'âge (seulement contrôles)
+```{r,message=F,warning=F}
+
+# on sélectionne que les contrôles (sujets sains) pour éviter des biais
+
+map_avec_antibio$age_category <- factor(map_avec_antibio$age_category, levels=c("newborn","child","schoolage","adult","senior"))
+
+map <- map_avec_antibio[which(map_avec_antibio$antibiotics_current_use =="no"),]
+
+ggplot(map,                       
+       aes(x = age_category,
+           y = reads_bifid, color=age_category )) +
+  geom_point() +
+  labs(x = NULL, y = NULL, title = "Relative Abundance of Bifidobacterium, no Antibiotics Takers") + labs(color= "Age Category") +
+  scale_color_brewer(palette = "Set2", labels = c("newborn (137)","child (160)","schoolage (88)","Adult (4921)", "Senior (422)")) +
+  
+  stat_compare_means(label.y = 0.9,label.x = "child")
+
+```
+
+Boxplot bactérium en fonction du genre homme/femme
+```{r,message=F,warning=F}
+
+# on enlève les na pour gender
+
+map_gender <- map[!is.na(map$gender),]
+
+map_gender <- map_gender[which(map_gender$age_category=="adult"),]
+
+# on sélectionne que les adultes (encore une fois)
+
+p<-ggplot(map_gender, aes(x=gender, y=reads_bifid, fill=gender))+ geom_boxplot(outlier.shape = NA) + labs(fill= "Gender")
+  
+p <- p + scale_fill_brewer(palette="Dark2") + theme_minimal() + labs(x = NULL, y = NULL, title = "Relative Abundance of Bifidobacterium among Adults, no Antibiotics Takers")+coord_cartesian(ylim=c(0,0.25)) + stat_compare_means(label.y = 0.23)
+p
+  
+```
+
