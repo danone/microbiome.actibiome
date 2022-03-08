@@ -40,10 +40,10 @@ library(ggthemes)
 
 ```{r,message=F,warning=F}
 
-#load(file = "curated_v3_otu_tax.rda")
+load(file = "curated_v3_otu_tax.rda")
 
-#otu <- data.frame(OTU)
-#taxo <- data.frame(TAX)
+otu <- data.frame(OTU)
+taxo <- data.frame(TAX)
 
 ```
 
@@ -203,6 +203,7 @@ On a 12661 échantillons = patients uniques
 
 ```{r,message=F,warning=F}
 
+
 # on prend les échantillons en commun entre les otus et metamap
 
 common.ids <- intersect(map$sample_id, t(colnames(otus)))
@@ -238,10 +239,6 @@ Le dataset a 9515 avec, et 127 variables
 
 ```{r,message=F,warning=F}
 
-# On s'intéresse au genre bifidobactérium d'abord donc on les sélectionne
-
-index <- which(tax$Genus =='Bifidobacterium')
-bifid_especes <- rownames(tax)[index]
 
 # est-ce que les id entre map et otus sont égaux ?
 
@@ -255,6 +252,11 @@ nrow(map)
 
 ```
 ```{r,message=F,warning=F}
+
+# On s'intéresse au genre bifidobactérium d'abord donc on les sélectionne
+
+index <- which(tax$Genus =='Bifidobacterium')
+bifid_especes <- rownames(tax)[index]
 
 # Calcul des abondances bifid seulement
 
