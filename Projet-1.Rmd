@@ -40,23 +40,13 @@ library(ggthemes)
 
 ```{r,message=F,warning=F}
 
-load(file = "curated_v3_otu_tax.rda")
+#load(file = "curated_v3_otu_tax.rda")
 
-otu <- data.frame(OTU)
-taxo <- data.frame(TAX)
-
-```
-
-## Scripting
-
-```{r,message=F,warning=F}
-
-load(file = "curated_v3_otu_tax.rda")
-
-otu <- data.frame(OTU)
-taxo <- data.frame(TAX)
+#otu <- data.frame(OTU)
+#taxo <- data.frame(TAX)
 
 ```
+
 
 ## On garde les données
 
@@ -67,7 +57,6 @@ tax <- taxo
 
 map <- sampleMetadata
 
-## Descriptif des meta data
 
 ```
 
@@ -96,7 +85,7 @@ Bowel <- c("IBD")
   
 Arthritis <- c("RA")
 
-levels(map$disease) <- list(
+levels(map$disease) = list(
   "Control" = c("healthy"),
   "Adenoma" =  Adenoma,
   "Colorectal" = Colorectal,
@@ -161,11 +150,6 @@ plot('disease','Patients Counts by Health Condition', 'Health Condition')
 
 ```{r,message=F,warning=F}
 
-
-otus <- otu
-tax <- taxo
-
-map <- sampleMetadata
 
 isUnique <- function(vector){
                  return(!any(duplicated(vector)))
@@ -271,26 +255,27 @@ nrow(map)
 
 ```
 ```{r,message=F,warning=F}
-# oui donc on sélectionne les abondances simplement par les num colonne
 
-abondances_bifid <- otus[index,]
+# Calcul des abondances bifid seulement
+
+somme_bifid <- otus %>%
+  filter(rownames(.) %in% bifid_especes) %>%
+  colSums(., na.rm=TRUE)
 
 # Calcul des abondances totales
 
-abondances <- t(data.frame(t(colSums(otus))))
-abondances_total <- as.numeric(abondances)
+somme_total <- otus %>%
+  colSums(., na.rm=TRUE) %>%
+  data.frame(.)
 
-
-# du coup on calcul l'abondance total des bifids (genre)
-
-abondances_bifid_somme <- as.numeric(t(data.frame(t(colSums(abondances_bifid)))))
-abondances_bifid_somme <- as.numeric(abondances_bifid_somme/abondances_total)
-
-
+bifid_normalized <- somme_bifid/somme_total
 
 # on merge
 
-bifid <- data.frame(cbind(sample_id = rownames(abondances), reads_total = abondances_total, reads_bifid = abondances_bifid_somme))
+bifid <- data.frame(cbind(sample_id = rownames(somme_total), reads_total = somme_total, reads_bifid = bifid_normalized))
+
+colnames(bifid) <- c('sample_id', 'reads_total', 'reads_bifid')
+
 
 map <- merge(map,bifid, by = "sample_id")
 
@@ -300,62 +285,40 @@ map <- merge(map,bifid, by = "sample_id")
 
 ## Analyse descriptive
 
-
-Preparation données pour boxplot antibiotiques
-```{r,message=F,warning=F}
-
-map_avec_antibio <- map
-
-# enlève les patients qui consomment antibio
-
-map <- map[which(map$antibiotics_current_use=="no"),]
-
-# on refait l'intersect
-
-# on prend les échantillons en commun entre les otus et metamap
-
-common.ids <- intersect(map$sample_id, t(colnames(otus)))
-
-# on prend les échantillons en commun seulement
-otus <- otus[,common.ids]
-rownames(map) <- map$sample_id
-map <- merge(x = map, y = data.frame(common.ids), by.x = "sample_id", by.y="common.ids")
-
-# on enlève les na 
-
-map_avec_antibio <- map_avec_antibio[!is.na(map_avec_antibio$antibiotics_current_use),]
-
-print("Echantillon sample sans les antibios (tout âge confondu) : ")
-nrow(map)
-print("Echantillon sample avec les antibios (tout âge confondu) : ")
-nrow(map_avec_antibio)
-
-# transformation facteur de la col antibiotics use
-map_avec_antibio$antibiotics_current_use <- factor(map_avec_antibio$antibiotics_current_use, levels=c("no", "yes"))
-
-```
-
 Boxplot antibiotiques
 
 ```{r,message=F,warning=F}
 
-antibio <- map_avec_antibio[which(map_avec_antibio$age_category=="adult"),]
+### on garde que les adultes et on enlève les NA
 
+map_antibio <- map %>%
+  filter((antibiotics_current_use=='yes' | antibiotics_current_use=='no') & age_category=='adult')
 
-p  <- ggboxplot(antibio, x="antibiotics_current_use", y="reads_bifid", fill="antibiotics_current_use",outlier.shape = NA )
+p  <- ggboxplot(map_antibio, x="antibiotics_current_use", y="reads_bifid", fill="antibiotics_current_use",outlier.shape = NA )
   
 p <- p + scale_fill_brewer(palette="Dark2",labels = c("No (4921 adults)", "Yes (52 adults)")) +
   
   theme_minimal() +
   
-  labs(x = NULL, y = NULL, title = "Relative Abundance of Bifidobacterium",fill= "Takes Antibiotics") 
+  labs(x = NULL, y = NULL, title = "Relative Abundance of Bifidobacterium",fill= "Takes Antibiotics") + 
+  coord_cartesian(ylim=c(0,0.3))
 
-p + stat_compare_means()
+p + stat_compare_means(label.y = 0.28)
 
-## label.y = 0.22
+map_antibio <- map %>%
+  filter(age_category=='adult' & (is.na(antibiotics_current_use) | antibiotics_current_use=='no'))
 
-##### dans l'étude voir s'il ne s'agit que d'une étude
-##### challenge antibitics
+p  <- ggboxplot(map_antibio, x="antibiotics_current_use", y="reads_bifid", fill="antibiotics_current_use",outlier.shape = NA )
+  
+p <- p + scale_fill_brewer(palette="Dark2",labels = c("No (4921 adults)", "NA (3571 adults)")) +
+  
+  theme_minimal() +
+  
+  labs(x = NULL, y = NULL, title = "Relative Abundance of Bifidobacterium",fill= "Takes Antibiotics") + 
+  coord_cartesian(ylim=c(0,0.3))
+
+p + stat_compare_means(label.y = 0.28)
+
 
 ```
 
@@ -378,9 +341,9 @@ map$non_westernized  = factor(map$non_westernized, levels=c("no", "yes"))
 
 # on garde que ceux qui ne consomment pas d'antibio
 
-map <- map[which(map$antibiotics_current_use=="no" & map$age_category=="adult"),]
+map_adult_no_antibio <- map[which(map$antibiotics_current_use=="no" & map$age_category=="adult"),]
 
-p<-ggboxplot(map, x="non_westernized", y="reads_bifid", fill="non_westernized",outlier.shape = NA )
+p<-ggboxplot(map_adult_no_antibio, x="non_westernized", y="reads_bifid", fill="non_westernized",outlier.shape = NA )
   
 p <- p +
   
@@ -402,7 +365,7 @@ Boxplot healthy/disease
 
 # on enlève les arthrithis car il y en a que 3
 
-p<-ggplot(map, aes(x=disease, y=reads_bifid, fill=disease))+ geom_boxplot(outlier.shape = NA) + labs(fill= "Disease (adults count)")
+p<-ggplot(map_adult_no_antibio, aes(x=disease, y=reads_bifid, fill=disease))+ geom_boxplot(outlier.shape = NA) + labs(fill= "Disease (adults count)")
   
 p <- p + scale_fill_brewer(palette="Dark2", labels = c("Control (4348)","Adenoma (29)", "Colorectal (74)", "Metabolic (320)", "Bowel (45)","Arthritis (85)", "BD (20)")) + 
   
@@ -416,9 +379,10 @@ Distribution of Bifidobactérium en fonction de l'âge (seulement contrôles)
 
 # on sélectionne que les contrôles (sujets sains) pour éviter des biais
 
-map_avec_antibio$age_category <- factor(map_avec_antibio$age_category, levels=c("newborn","child","schoolage","adult","senior"))
+map_age <- map %>%
+  filter(antibiotics_current_use =="no")
 
-map <- map_avec_antibio[which(map_avec_antibio$antibiotics_current_use =="no"),]
+map_age$age_category <- factor(map_age$age_category, levels=c("newborn","child","schoolage","adult","senior"))
 
 ggplot(map,                       
        aes(x = age_category,
@@ -426,6 +390,7 @@ ggplot(map,
   geom_point() +
   labs(x = NULL, y = NULL, title = "Relative Abundance of Bifidobacterium, no Antibiotics Takers") + labs(color= "Age Category") +
   scale_color_brewer(palette = "Set2", labels = c("newborn (137)","child (160)","schoolage (88)","Adult (4921)", "Senior (422)")) +
+  scale_x_discrete(limits=c("newborn","child","schoolage","adult","senior")) +
   
   stat_compare_means(label.y = 0.9,label.x = "child")
 
@@ -444,7 +409,7 @@ map_gender <- map_gender[which(map_gender$age_category=="adult"),]
 
 p<-ggplot(map_gender, aes(x=gender, y=reads_bifid, fill=gender))+ geom_boxplot(outlier.shape = NA) + labs(fill= "Gender")
   
-p <- p + scale_fill_brewer(palette="Dark2") + theme_minimal() + labs(x = NULL, y = NULL, title = "Relative Abundance of Bifidobacterium among Adults, no Antibiotics Takers")+coord_cartesian(ylim=c(0,0.25)) + stat_compare_means(label.y = 0.23)
+p <- p + scale_fill_brewer(palette="Dark2") + theme_minimal() + labs(x = NULL, y = NULL, title = "Relative Abundance of Bifidobacterium among Adults, no Antibiotics Takers")+coord_cartesian(ylim=c(0,0.29)) + stat_compare_means(label.y = 0.25)
 p
   
 ```
