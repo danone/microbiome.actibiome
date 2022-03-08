@@ -32,6 +32,7 @@ library(ggplot2)
 library(ggsignif)
 library(devtools)
 library(SpiecEasi)
+library(ggthemes)
 
 ```
 
@@ -39,10 +40,120 @@ library(SpiecEasi)
 
 ```{r,message=F,warning=F}
 
-#load(file = "curated_v3_otu_tax.rda")
+load(file = "curated_v3_otu_tax.rda")
 
-#otu <- data.frame(OTU)
-#taxo <- data.frame(TAX)
+otu <- data.frame(OTU)
+taxo <- data.frame(TAX)
+
+```
+
+## Scripting
+
+```{r,message=F,warning=F}
+
+load(file = "curated_v3_otu_tax.rda")
+
+otu <- data.frame(OTU)
+taxo <- data.frame(TAX)
+
+```
+
+## On garde les données
+
+```{r,message=F,warning=F}
+
+otus <- otu
+tax <- taxo
+
+map <- sampleMetadata
+
+## Descriptif des meta data
+
+```
+
+## Regrouper les maladies
+
+```{r,message=F,warning=F}
+# On va regrouper les facteurs dans la colonne "disease car il y a beaucoup de facteurs"
+
+map$disease <- factor(map$disease)
+
+# tout d'abord on simplifie les facteurs car il y a en a 23
+
+# tous les facteurs contenant "adenoma" :
+Adenoma <- grep("adenoma", levels(map$disease),fixed=TRUE,state.name, value = TRUE)
+
+# tous les facteurs contenant "CRC" :
+Colorectal <- c("metastases",grep("CRC", levels(map$disease),fixed=TRUE,state.name, value = TRUE))
+
+# les maladies métaboliques (T2D, hypercholestérolémie etc etc)
+
+Metabolic <- c("ACVD", "hypercholesterolemia", "hypertension", "hypertension;metastases", "IGT", "T2D")
+
+# enfin le bipolar disorder et 
+
+Bowel <- c("IBD")
+  
+Arthritis <- c("RA")
+
+levels(map$disease) <- list(
+  "Control" = c("healthy"),
+  "Adenoma" =  Adenoma,
+  "Colorectal" = Colorectal,
+  "Metabolic" = Metabolic,
+  "Bowel" = Bowel,
+  "Arthritis" = Arthritis,
+  "BD" = c('BD'))
+
+
+```
+
+## Descriptif des données
+
+```{r,message=F,warning=F}
+
+plot <- function(category, title, fill){
+  map_sub <- map %>%
+    select(category) %>%
+    table(., useNA = "always")  %>%
+    as.data.frame(.) %>%
+    filter(Freq!=0)
+
+
+  p <- ggplot(map_sub, aes(fill=., y=Freq, x=.)) + 
+    geom_bar(stat="identity",position="stack")+
+    theme_minimal() +
+    geom_text(aes(label=Freq,
+                  vjust=0.3, 
+                  hjust=ifelse(Freq>1200, 1.3,-0.3),
+                  angle = 90), 
+              size=3.3,
+              color="black"
+              )+
+    labs(x = NULL, y = NULL, title = title, fill= fill) 
+  
+  
+  ## si la catégorie est age on change les labels x qui sont mal ordonnés
+  
+  
+    if(category == 'age_category'){
+      p <- p + scale_x_discrete(limits=c("newborn","child","schoolage","adult","senior"))
+  }
+  
+  p
+
+}
+
+plot('age_category','Patients Counts by Age Category', 'Age Category')
+
+plot('gender','Patients Counts by Gender', 'Gender')
+
+plot('antibiotics_current_use','Patients Counts by Antibiotics Current Use', 'Antibiotics Current Use')
+
+plot('body_site','Patients Counts by Body Site', 'Body Site')
+
+
+plot('disease','Patients Counts by Health Condition', 'Health Condition')
 
 ```
 
@@ -76,16 +187,6 @@ On a 20 000 lignes environ
 ## on enlève les échantillons dans tax qui contiennent des NA
 
 tax  <- tax[ , colSums(is.na(tax)) == 0]
-
-ncol(otus)
-
-# on filtre le patient SID32.PR.V.1 qui pose problème pour la suite de l'analyse
-
-otus <- otus %>%
-  select(-SID32.PR.V.1)
-
-map <- map %>%
-  filter(sample_id != 'SID32.PR.V.1')
 
 ncol(otus)
 
@@ -145,9 +246,6 @@ map <- map[index,]
 
 nrow(map)
 
-# on save les fichiers après QC
-
-save(map, otus, tax, file="study_after_QC.rda")
 
 ```
 Le dataset a 9515 avec, et 127 variables
@@ -199,42 +297,6 @@ map <- merge(map,bifid, by = "sample_id")
 
 ```
 
-Regrouper les maladies
-
-```{r,message=F,warning=F}
-# On va regrouper les facteurs dans la colonne "disease car il y a beaucoup de facteurs"
-
-map$disease <- factor(map$disease)
-
-# tout d'abord on simplifie les facteurs car il y a en a 23
-
-# tous les facteurs contenant "adenoma" :
-Adenoma <- grep("adenoma", levels(map$disease),fixed=TRUE,state.name, value = TRUE)
-
-# tous les facteurs contenant "CRC" :
-Colorectal <- c("metastases",grep("CRC", levels(map$disease),fixed=TRUE,state.name, value = TRUE))
-
-# les maladies métaboliques (T2D, hypercholestérolémie etc etc)
-
-Metabolic <- c("ACVD", "hypercholesterolemia", "hypertension", "hypertension;metastases", "IGT", "T2D")
-
-# enfin le bipolar disorder et 
-
-Bowel <- c("IBD")
-  
-Arthritis <- c("RA")
-
-levels(map$disease) <- list(
-  "Control" = c("healthy"),
-  "Adenoma" =  Adenoma,
-  "Colorectal" = Colorectal,
-  "Metabolic" = Metabolic,
-  "Bowel" = Bowel,
-  "Arthritis" = Arthritis,
-  "BD" = c('BD'))
-
-
-```
 
 ## Analyse descriptive
 
