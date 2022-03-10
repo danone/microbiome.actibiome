@@ -49,15 +49,25 @@ taxo <- data.frame(TAX)
 
 common.ids <- intersect(enterotypes$sample_name, intersect(t(colnames(otus)), sampleMetadata$sample_id))
 
+enterotypes <- enterotypes %>%
+  filter(sample_name %in% common.ids)
+
+names(enterotypes)[1] <- 'sample_id'
+
+enterotypes$Enterotypes_id <- as.character(map$Enterotypes_id)
+
+
 otu <- otus[,common.ids]
 
 enterotypes <- enterotypes %>%
-  filter(sample_name %in% common.ids)
+  filter(sample_id %in% common.ids)
 
 tax <- taxo
 
 map <- sampleMetadata %>%
-  filter(sample_id %in% common.ids)
+  filter(sample_id %in% common.ids) %>%
+  inner_join(enterotypes)
+
 
 
 # si un patient a plusieurs échantillons, on prend celui qui aura le nombre de reads le plus élevé
@@ -149,41 +159,12 @@ physeq_norm <- subset_taxa(phy, Genus %in% c("Bifidobacterium"))
 
 ```
 
-## sous sélections des taxas et samples
-
-```{r,message=F,warning=F}
-
-
-phy_age <- merge_samples(physeq_norm, "age_category")
-
-phy_normalized  <- transform_sample_counts(phy_age, function(x) x/sum(x))
-
-phy_normalized_ten <- get_top_taxa(phy_normalized, 10, discard_other = TRUE)
-
-##
-
-p <- plot_heatmap(phy_normalized_ten, method = "MDS",
-               taxa.label = "Species", taxa.order = "Species", 
-               trans=NULL, low="beige", high="red", na.value="beige")
-
-#,sample.order = c("newborn","child","schoolage","adult","senior")
-
-
-p$labels$fill <- "Relative Abundance"
-p$labels$x <- "Age Category"
-
-p
-
-  
-```
-
-
 
 ## sous sélections des taxas et samples
 
 ```{r,message=F,warning=F}
 
-heatmap_phylo <- function(category, x){
+heatmap_phylo <- function(category, x, order){
 
 
   phy_age <- merge_samples(physeq_norm, category)
@@ -194,18 +175,10 @@ heatmap_phylo <- function(category, x){
 
   ##
   
-  if(category == 'age_category'){
-    p <- plot_heatmap(phy_normalized_ten, method = "MDS",
-                      taxa.label = "Species", taxa.order = "Species", 
-                      trans=NULL, low="beige", high="red", na.value="beige",sample.order = c("newborn","child",
-                                                                                            "schoolage","adult","senior"))
-    }
+  p <- plot_heatmap(phy_normalized_ten,
+                    taxa.label = "Species", taxa.order = "Species", 
+                    trans=NULL, low="beige", high="red", na.value="beige",sample.order = order)
 
-  else {
-    p <- plot_heatmap(phy_normalized_ten, method = "MDS",
-                      taxa.label = "Species", taxa.order = "Species", 
-                      trans=NULL, low="beige", high="red", na.value="beige")
-    }
 
   p$labels$fill <- "Relative Abundance"
   p$labels$x <- x
@@ -214,34 +187,16 @@ heatmap_phylo <- function(category, x){
   
 }
 
-heatmap_phylo("age_category", "Age Category")
+heatmap_phylo("age_category", "Age Category", c("newborn","child","schoolage","adult","senior"))
 
-heatmap_phylo("disease", "body_site")
+heatmap_phylo("disease", "Disease", c("Control","Adenoma","Colorectal","Metabolic", "Bowel", "Arthritis", "BD"))
 
-heatmap_phylo("gender", "Age Category")
+heatmap_phylo("gender", "Age Category", c("male","female"))
 
-heatmap_phylo("non_westernized", "Age Category")
+heatmap_phylo("non_westernized", "Non Westernized",  c("no","yes"))
 
-
-```
-
-## c
-
-```{r,message=F,warning=F}
-
+heatmap_phylo("Enterotypes_id", "Enterotype Clusters", as.character(1:24))
 
 ```
 
-## c
 
-```{r,message=F,warning=F}
-
-
-```
-
-## c
-
-```{r,message=F,warning=F}
-
-
-```
