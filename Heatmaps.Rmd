@@ -1,0 +1,247 @@
+---
+title: "Anlyse différentielle"
+author: "ruben"
+date: "10/03/2022"
+output: html_document
+---
+
+
+## Librairies
+
+```{r,message=F,warning=F}
+
+library(devtools)
+library(microbiome)
+library(phyloseq)
+library(ggpubr)
+library(dplyr)
+library(SpiecEasi)  
+library(data.table)
+library(microbiomeutilities)
+library(viridis)
+library(RColorBrewer)
+library(fantaxtic)
+
+```
+
+
+## c
+
+```{r,message=F,warning=F}
+
+load("curated_v3_otu_tax.rda")
+
+enterotypes <- fread("enterotypes_curated_v3_prediction.csv")[,-1]
+
+otus <- data.frame(OTU)
+
+taxo <- data.frame(TAX)
+
+
+```
+
+## Filtre données
+
+```{r,message=F,warning=F}
+
+
+## on prend les ID en commun
+
+common.ids <- intersect(enterotypes$sample_name, intersect(t(colnames(otus)), sampleMetadata$sample_id))
+
+otu <- otus[,common.ids]
+
+enterotypes <- enterotypes %>%
+  filter(sample_name %in% common.ids)
+
+tax <- taxo
+
+map <- sampleMetadata %>%
+  filter(sample_id %in% common.ids)
+
+
+# si un patient a plusieurs échantillons, on prend celui qui aura le nombre de reads le plus élevé
+
+map <- unique(setDT(map)[order(sample_id, -number_reads)], by = "sample_id")
+
+nrow(map)
+
+ncol(otu)
+
+nrow(enterotypes)
+
+
+# tout est ok !
+```
+## Regrouper les maladies
+
+```{r,message=F,warning=F}
+# On va regrouper les facteurs dans la colonne "disease car il y a beaucoup de facteurs"
+
+map$disease <- factor(map$disease)
+
+# tout d'abord on simplifie les facteurs car il y a en a 23
+
+# tous les facteurs contenant "adenoma" :
+Adenoma <- grep("adenoma", levels(map$disease),fixed=TRUE,state.name, value = TRUE)
+
+# tous les facteurs contenant "CRC" :
+Colorectal <- c("metastases",grep("CRC", levels(map$disease),fixed=TRUE,state.name, value = TRUE))
+
+# les maladies métaboliques (T2D, hypercholestérolémie etc etc)
+
+Metabolic <- c("ACVD", "hypercholesterolemia", "hypertension", "hypertension;metastases", "IGT", "T2D")
+
+# enfin le bipolar disorder et 
+
+Bowel <- c("IBD")
+  
+Arthritis <- c("RA")
+
+levels(map$disease) = list(
+  "Control" = c("healthy"),
+  "Adenoma" =  Adenoma,
+  "Colorectal" = Colorectal,
+  "Metabolic" = Metabolic,
+  "Bowel" = Bowel,
+  "Arthritis" = Arthritis,
+  "BD" = c('BD'))
+
+
+```
+
+
+### Processing
+
+```{r,message=F,warning=F}
+
+# définition du nom des lignes pour map
+
+mapp <- map %>% 
+  tibble::column_to_rownames("sample_id") 
+
+# création de l'object phyloseq
+
+## matrices
+
+otu_df <- otu
+
+otu <- t(as.matrix(otu))
+
+
+tax <- as.matrix(tax)
+
+##
+
+```
+
+## Objet Phyloseq
+
+```{r,message=F,warning=F}
+
+otu <- otu_table(otu, taxa_are_rows = FALSE)
+mapp <- sample_data(mapp)
+taxo <- tax_table(tax)
+
+phy <- phyloseq(otu, mapp, taxo)
+
+physeq_norm <- subset_taxa(phy, Genus %in% c("Bifidobacterium"))
+
+```
+
+## sous sélections des taxas et samples
+
+```{r,message=F,warning=F}
+
+
+phy_age <- merge_samples(physeq_norm, "age_category")
+
+phy_normalized  <- transform_sample_counts(phy_age, function(x) x/sum(x))
+
+phy_normalized_ten <- get_top_taxa(phy_normalized, 10, discard_other = TRUE)
+
+##
+
+p <- plot_heatmap(phy_normalized_ten, method = "MDS",
+               taxa.label = "Species", taxa.order = "Species", 
+               trans=NULL, low="beige", high="red", na.value="beige")
+
+#,sample.order = c("newborn","child","schoolage","adult","senior")
+
+
+p$labels$fill <- "Relative Abundance"
+p$labels$x <- "Age Category"
+
+p
+
+  
+```
+
+
+
+## sous sélections des taxas et samples
+
+```{r,message=F,warning=F}
+
+heatmap_phylo <- function(category, x){
+
+
+  phy_age <- merge_samples(physeq_norm, category)
+
+  phy_normalized  <- transform_sample_counts(phy_age, function(x) x/sum(x))
+
+  phy_normalized_ten <- get_top_taxa(phy_normalized, 10, discard_other = TRUE)
+
+  ##
+  
+  if(category == 'age_category'){
+    p <- plot_heatmap(phy_normalized_ten, method = "MDS",
+                      taxa.label = "Species", taxa.order = "Species", 
+                      trans=NULL, low="beige", high="red", na.value="beige",sample.order = c("newborn","child",
+                                                                                            "schoolage","adult","senior"))
+    }
+
+  else {
+    p <- plot_heatmap(phy_normalized_ten, method = "MDS",
+                      taxa.label = "Species", taxa.order = "Species", 
+                      trans=NULL, low="beige", high="red", na.value="beige")
+    }
+
+  p$labels$fill <- "Relative Abundance"
+  p$labels$x <- x
+
+  p
+  
+}
+
+heatmap_phylo("age_category", "Age Category")
+
+heatmap_phylo("disease", "body_site")
+
+heatmap_phylo("gender", "Age Category")
+
+heatmap_phylo("non_westernized", "Age Category")
+
+
+```
+
+## c
+
+```{r,message=F,warning=F}
+
+
+```
+
+## c
+
+```{r,message=F,warning=F}
+
+
+```
+
+## c
+
+```{r,message=F,warning=F}
+
+
+```
