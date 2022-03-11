@@ -29,13 +29,13 @@ library(fantaxtic)
 
 ```{r,message=F,warning=F}
 
-load("curated_v3_otu_tax.rda")
+#load("curated_v3_otu_tax.rda")
 
 enterotypes <- fread("enterotypes_curated_v3_prediction.csv")[,-1]
 
-otus <- data.frame(OTU)
+#otus <- data.frame(OTU)
 
-taxo <- data.frame(TAX)
+#taxo <- data.frame(TAX)
 
 
 ```
@@ -54,13 +54,12 @@ enterotypes <- enterotypes %>%
 
 names(enterotypes)[1] <- 'sample_id'
 
-enterotypes$Enterotypes_id <- as.character(map$Enterotypes_id)
+map <- sampleMetadata
+
+enterotypes$Enterotypes_id <- as.character(enterotypes$Enterotypes_id)
 
 
 otu <- otus[,common.ids]
-
-enterotypes <- enterotypes %>%
-  filter(sample_id %in% common.ids)
 
 tax <- taxo
 
@@ -167,9 +166,9 @@ physeq_norm <- subset_taxa(phy, Genus %in% c("Bifidobacterium"))
 heatmap_phylo <- function(category, x, order){
 
 
-  phy_age <- merge_samples(physeq_norm, category)
+  phy <- merge_samples(physeq_norm, category)
 
-  phy_normalized  <- transform_sample_counts(phy_age, function(x) x/sum(x))
+  phy_normalized  <- transform_sample_counts(phy, function(x) log10(x/sum(x)))
 
   phy_normalized_ten <- get_top_taxa(phy_normalized, 10, discard_other = TRUE)
 
@@ -180,7 +179,7 @@ heatmap_phylo <- function(category, x, order){
                     trans=NULL, low="beige", high="red", na.value="beige",sample.order = order)
 
 
-  p$labels$fill <- "Relative Abundance"
+  p$labels$fill <- expression(log[10]('Relative Abundance'))
   p$labels$x <- x
 
   p
