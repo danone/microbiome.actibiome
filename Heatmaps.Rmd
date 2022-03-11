@@ -168,7 +168,7 @@ heatmap_phylo <- function(category, x, order){
 
   phy <- merge_samples(physeq_norm, category)
 
-  phy_normalized  <- transform_sample_counts(phy, function(x) log10(x/sum(x)))
+  phy_normalized  <- transform_sample_counts(phy, function(x) log10(x/mean(x)))
 
   phy_normalized_ten <- get_top_taxa(phy_normalized, 10, discard_other = TRUE)
 

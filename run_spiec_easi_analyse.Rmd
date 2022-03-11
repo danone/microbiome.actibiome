@@ -1,0 +1,168 @@
+---
+title: "run_spiec_easi_analyse"
+author: "ruben"
+date: "04/03/2022"
+output: html_document
+---
+
+
+## Librairies
+
+```{r,message=F,warning=F}
+
+library(devtools)
+library(microbiome)
+library(phyloseq)
+library(RColorBrewer)
+library(ggpubr)
+library(dplyr)
+library(SpiecEasi)  
+library(network)
+library(intergraph)
+library(ggnet)
+library(igraph)
+library(data.table)
+library(fantaxtic)
+library(metagMisc)
+
+```
+
+
+## Import données
+
+```{r,message=F,warning=F}
+
+load("curated_v3_otu_tax.rda")
+
+otus <- data.frame(OTU)
+
+taxo <- data.frame(TAX)
+
+
+```
+
+## Filtre données
+
+```{r,message=F,warning=F}
+
+## on prend les ID en commun
+
+common.ids <- intersect(t(colnames(otus)), sampleMetadata$sample_id)
+
+otu <- otus[,common.ids]
+
+
+tax <- taxo
+
+map <- sampleMetadata %>%
+  filter(sample_id %in% common.ids)
+
+
+# si un patient a plusieurs échantillons, on prend celui qui aura le nombre de reads le plus élevé
+
+map <- unique(setDT(map)[order(sample_id, -number_reads)], by = "sample_id")
+
+nrow(map)
+
+ncol(otu)
+
+# tout est ok !
+```
+
+
+### Processing
+
+```{r,message=F,warning=F}
+
+# définition du nom des lignes pour map
+
+mapp <- map %>% 
+  tibble::column_to_rownames("sample_id") 
+
+# création de l'object phyloseq
+
+## matrices
+
+otu <- as.matrix(otu)
+
+
+tax <- as.matrix(tax)
+
+##
+
+```
+
+## Objet Phyloseq
+
+```{r,message=F,warning=F}
+
+otu <- otu_table(otu, taxa_are_rows = TRUE)
+mapp <- sample_data(mapp)
+taxo <- tax_table(tax)
+
+phy <- phyloseq(otu, mapp, taxo)
+
+```
+
+## Fitre et objet phyloseq
+
+```{r,message=F,warning=F}
+
+
+# que les échantillons stool
+
+phy <- subset_samples(phy, body_site == "stool")
+
+phy <- subset_samples(phy, antibiotics_current_use == "no")
+
+phy <- subset_taxa(phy, Genus %in% c("Bifidobacterium"))
+
+```
+
+## Selection des 10 taxa les plus abondants
+
+```{r,message=F,warning=F}
+
+## on normalise
+
+## on sélectionne les 10 puis leur nom
+
+phy <- phyloseq_filter_top_taxa(phy, 10)
+                                      
+
+# on keep les otus et tax
+
+otu.c.w <- otu_table(phy)@.Data
+
+tax.c <- as.data.frame(tax_table(phy)@.Data)
+
+```
+
+## Fitre et objet phyloseq
+
+```{r,message=F,warning=F}
+
+set.seed(1244)
+
+net.c.w <- spiec.easi(otu.c.w,
+                    method='mb',
+                    lambda.min.ratio=1e-2,
+                    nlambda=20,
+                    pulsar.params=list(rep.num=20,
+                                       ncores=1))
+
+```
+
+## Plot
+
+```{r,message=F,warning=F}
+
+spiec.graph_species=adj2igraph(getRefit(net.c.w), vertex.attr=list(name=taxa_names(phy_antibio)))
+
+
+plot_network(spiec.graph_species, phy_antibio, type= 'taxa', color="Species", title='Antibiotics current use = no')
+
+
+```
+
+
