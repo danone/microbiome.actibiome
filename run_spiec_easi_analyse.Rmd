@@ -115,6 +115,8 @@ phy <- subset_samples(phy, body_site == "stool")
 
 phy <- subset_samples(phy, antibiotics_current_use == "no")
 
+phy <- subset_samples(phy, age_category == "newborn")
+
 phy <- subset_taxa(phy, Genus %in% c("Bifidobacterium"))
 
 ```
