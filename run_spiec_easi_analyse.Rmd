@@ -115,7 +115,7 @@ phy <- subset_samples(phy, body_site == "stool")
 
 phy <- subset_samples(phy, antibiotics_current_use == "no")
 
-phy <- subset_samples(phy, age_category == "newborn")
+phy <- subset_samples(phy, age_category == "adult")
 
 phy <- subset_taxa(phy, Genus %in% c("Bifidobacterium"))
 
@@ -127,10 +127,6 @@ phy <- subset_taxa(phy, Genus %in% c("Bifidobacterium"))
 
 ## on normalise
 
-## on sélectionne les 10 puis leur nom
-
-phy <- phyloseq_filter_top_taxa(phy, 10)
-                                      
 
 # on keep les otus et tax
 
