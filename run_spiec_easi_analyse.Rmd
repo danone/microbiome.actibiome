@@ -119,6 +119,9 @@ phy <- subset_samples(phy, age_category == "adult")
 
 phy <- subset_taxa(phy, Genus %in% c("Bifidobacterium"))
 
+phy <- prune_samples(sample_sums(phy)>=1000, phy) # select sample with at least 1000 reads assigned to bifidobacterium
+
+
 ```
 
 ## Selection des 10 taxa les plus abondants
@@ -134,6 +137,10 @@ otu.c.w <- otu_table(phy)@.Data
 
 tax.c <- as.data.frame(tax_table(phy)@.Data)
 
+
+# rarefaction to 1000 reads
+otu.c.w <- t(vegan::rrarefy(t(otu.c.w), 1000))
+
 ```
 
 ## Fitre et objet phyloseq
@@ -142,12 +149,15 @@ tax.c <- as.data.frame(tax_table(phy)@.Data)
 
 set.seed(1244)
 
+
+
+
 net.c.w <- spiec.easi(otu.c.w,
                     method='mb',
                     lambda.min.ratio=1e-2,
                     nlambda=20,
                     pulsar.params=list(rep.num=20,
-                                       ncores=1))
+                                       ncores=12))
 
 ```
 
@@ -155,10 +165,10 @@ net.c.w <- spiec.easi(otu.c.w,
 
 ```{r,message=F,warning=F}
 
-spiec.graph_species=adj2igraph(getRefit(net.c.w), vertex.attr=list(name=taxa_names(phy_antibio)))
+spiec.graph_species=adj2igraph(getRefit(net.c.w), vertex.attr=list(name=taxa_names(phy)))
 
 
-plot_network(spiec.graph_species, phy_antibio, type= 'taxa', color="Species", title='Antibiotics current use = no')
+plot_network(spiec.graph_species, phy, type= 'taxa', color="Species", title='Antibiotics current use = no')
 
 
 ```
