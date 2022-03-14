@@ -9,7 +9,7 @@ output: html_document
 ## Librairies
 
 ```{r,message=F,warning=F}
-
+library(data.table)
 library(devtools)
 library(microbiome)
 library(phyloseq)
