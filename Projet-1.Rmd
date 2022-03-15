@@ -15,13 +15,6 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r,message=F,warning=F}
 
-## voir les sujets qui ont plusieurs points dans le temps
-## voir c'est quoi l'étude, si c'est des sujets sains
-## réseau à l'intérieur d'adulte
-## analyse par entérotype
-## voir par rapport aux abondances relatives
-## voir la distribution des espèces
-
 library(data.table)
 library(phyloseq)
 library(tidyverse)
@@ -31,8 +24,8 @@ library(rstatix)
 library(ggplot2)
 library(ggsignif)
 library(devtools)
-library(SpiecEasi)
 library(ggthemes)
+library('ggforce')
 
 ```
 
@@ -40,9 +33,10 @@ library(ggthemes)
 
 ```{r,message=F,warning=F}
 
-load(file = "curated_v3_otu_tax.rda")
+load("curated_v3_otu_tax.rda")
 
 otu <- data.frame(OTU)
+
 taxo <- data.frame(TAX)
 
 ```
@@ -94,55 +88,6 @@ levels(map$disease) = list(
   "Arthritis" = Arthritis,
   "BD" = c('BD'))
 
-
-```
-
-## Descriptif des données
-
-```{r,message=F,warning=F}
-
-plot <- function(category, title, fill){
-  map_sub <- map %>%
-    select(category) %>%
-    table(., useNA = "always")  %>%
-    as.data.frame(.) %>%
-    filter(Freq!=0)
-
-
-  p <- ggplot(map_sub, aes(fill=., y=Freq, x=.)) + 
-    geom_bar(stat="identity",position="stack")+
-    theme_minimal() +
-    geom_text(aes(label=Freq,
-                  vjust=0.3, 
-                  hjust=ifelse(Freq>1200, 1.3,-0.3),
-                  angle = 90), 
-              size=3.3,
-              color="black"
-              )+
-    labs(x = NULL, y = NULL, title = title, fill= fill) 
-  
-  
-  ## si la catégorie est age on change les labels x qui sont mal ordonnés
-  
-  
-    if(category == 'age_category'){
-      p <- p + scale_x_discrete(limits=c("newborn","child","schoolage","adult","senior"))
-  }
-  
-  p
-
-}
-
-plot('age_category','Patients Counts by Age Category', 'Age Category')
-
-plot('gender','Patients Counts by Gender', 'Gender')
-
-plot('antibiotics_current_use','Patients Counts by Antibiotics Current Use', 'Antibiotics Current Use')
-
-plot('body_site','Patients Counts by Body Site', 'Body Site')
-
-
-plot('disease','Patients Counts by Health Condition', 'Health Condition')
 
 ```
 
@@ -250,7 +195,59 @@ setequal(rownames(otus),rownames(tax))
 
 nrow(map)
 
+
+#save(otus, tax, map, file="study_after_QC.rda") 
+
+
 ```
+
+## Descriptif des données
+
+```{r,message=F,warning=F}
+
+plot <- function(category, title, fill){
+  map_sub <- map %>%
+    select(category) %>%
+    table(., useNA = "always")  %>%
+    as.data.frame(.) %>%
+    filter(Freq!=0)
+
+
+  p <- ggplot(map_sub, aes(fill=., y=Freq, x=.)) + 
+    geom_bar(stat="identity",position="stack")+
+    theme_minimal() +
+    geom_text(aes(label=Freq,
+                  vjust=0.3, 
+                  hjust=ifelse(Freq>1200, 1.3,-0.3),
+                  angle = 90), 
+              size=3.3,
+              color="black"
+              )+
+    labs(x = NULL, y = NULL, title = title, fill= fill) 
+  
+  
+  ## si la catégorie est age on change les labels x qui sont mal ordonnés
+  
+  
+    if(category == 'age_category'){
+      p <- p + scale_x_discrete(limits=c("newborn","child","schoolage","adult","senior"))
+  }
+  
+  p
+
+}
+
+plot('age_category','Patients Counts by Age Category', 'Age Category')
+
+plot('gender','Patients Counts by Gender', 'Gender')
+
+plot('antibiotics_current_use','Patients Counts by Antibiotics Current Use', 'Antibiotics Current Use')
+
+plot('disease','Patients Counts by Health Condition', 'Health Condition')
+
+```
+
+
 ```{r,message=F,warning=F}
 
 # On s'intéresse au genre bifidobactérium d'abord donc on les sélectionne
@@ -389,7 +386,8 @@ map_age$age_category <- factor(map_age$age_category, levels=c("newborn","child",
 ggplot(map,                       
        aes(x = age_category,
            y = reads_bifid, color=age_category )) +
-  geom_point() +
+  geom_violin() +
+  geom_sina() +
   labs(x = NULL, y = NULL, title = "Relative Abundance of Bifidobacterium, no Antibiotics Takers") + labs(color= "Age Category") +
   scale_color_brewer(palette = "Set2", labels = c("newborn (137)","child (160)","schoolage (88)","Adult (4921)", "Senior (422)")) +
   scale_x_discrete(limits=c("newborn","child","schoolage","adult","senior")) +

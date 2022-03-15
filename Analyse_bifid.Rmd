@@ -125,7 +125,7 @@ ten_species <- reshaped_map %>%
   arrange(desc(sumAb))
 
 # on sélectionne les 10
-ten_species <- ten_species$Espece[1:12]
+ten_species <- ten_species$Espece[1:10]
 
 reshaped_map <- reshaped_map %>%
   filter(Espece %in% ten_species)
@@ -198,7 +198,7 @@ ten_species <- reshaped_map %>%
   arrange(desc(sumAb))
 
 # on sélectionne les 10
-ten_species <- ten_species$Espece[1:12]
+ten_species <- ten_species$Espece[1:10]
 
 reshaped_map <- reshaped_map %>%
   filter(Espece %in% ten_species)

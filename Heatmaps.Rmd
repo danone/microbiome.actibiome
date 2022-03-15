@@ -29,13 +29,13 @@ library(fantaxtic)
 
 ```{r,message=F,warning=F}
 
-#load("curated_v3_otu_tax.rda")
+load("curated_v3_otu_tax.rda")
 
 enterotypes <- fread("enterotypes_curated_v3_prediction.csv")[,-1]
 
-#otus <- data.frame(OTU)
+otus <- data.frame(OTU)
 
-#taxo <- data.frame(TAX)
+taxo <- data.frame(as.matrix(TAX))
 
 
 ```

@@ -1,0 +1,175 @@
+---
+title: "Analyses_Bifid"
+author: "rubenladeira"
+date: "02/03/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Librairies
+
+```{r,message=F,warning=F}
+
+library(data.table)
+library(phyloseq)
+library(tidyverse)
+library(ggpubr)
+library(rstatix)
+library(ggsignif)
+library(microbiome)
+library(dplyr)
+library(ggforce)
+
+```
+
+## Import des données
+
+```{r,message=F,warning=F}
+
+load(file = "study_after_QC.rda")
+
+```
+
+
+## Objet phyloseq et transformation des Count en abondance relative
+
+```{r,message=F,warning=F}
+
+# définition du nom des lignes pour map
+
+mapp <- map %>% 
+  tibble::column_to_rownames("sample_id") 
+
+# création de l'object phyloseq
+
+## matrices
+
+otu <- as.matrix(otus)
+
+
+taxo <- as.matrix(tax)
+
+##
+
+```
+
+## Ecriture d'une fonction pour merge par groupe en faisant la moyenne
+
+```{r,message=F,warning=F}
+
+merge_samples_mean <- function(physeq, group){
+  
+  # Return new phyloseq object with taxa as rows
+  
+  group_sums <- as.matrix(table(sample_data(physeq)[ ,group]))[,1]
+  
+  # Merge samples by summing
+  
+  # Divide summed OTU counts by number of samples in each group to get mean
+  
+  merged <- merge_samples(physeq, group)
+  
+  # Calculation is done while taxa are columns, but then transposed at the end
+  
+  x <- as.matrix(otu_table(merged))
+  
+  
+  if(taxa_are_rows(merged)){ x<-t(x) }
+  
+  out <- t(x/group_sums)
+  
+  # Return new phyloseq object with taxa as rows
+  
+  out <- otu_table(out, taxa_are_rows = TRUE)
+  
+  otu_table(merged) <- out
+  
+  return(merged)
+}
+
+```
+
+## Objet Phyloseq
+
+```{r,message=F,warning=F}
+
+otu <- otu_table(otu, taxa_are_rows = TRUE)
+mapp <- sample_data(mapp)
+taxo <- tax_table(taxo)
+
+phy <- phyloseq(otu, mapp, taxo)
+
+# on calcule les abondances relatives
+
+phy_norm <- transform_sample_counts(phy, function(x) x / sum(x))
+
+## la fonction de référence pour regrouper les sample est la somme, on doit dc normaliser les lignes pour chaque groupe
+
+phy <- merge_samples_mean(phy_norm, 'disease')
+
+```
+
+
+## Objet Phyloseq
+
+```{r,message=F,warning=F}
+
+## on a un tableau avec les abondances relatives moyennes en fonction des catégories
+
+table_pourc <- data.frame(phy@otu_table)
+
+## on veut savoir quelles espèces sont bifid ou non
+
+especes <- tax %>%
+  mutate(bifid =
+           case_when(Genus == 'Bifidobacterium' ~ "oui", 
+                     TRUE ~ "non")) %>%
+  select(Species, bifid) %>%
+  rownames_to_column(.,"id")
+
+### on selectionne dans le tableau et on merge
+
+tabl_rangee <- table_pourc %>%
+  rownames_to_column(.,"id") %>%
+  merge(., especes, by="id", all=TRUE) %>%
+  arrange(desc(Control)) %>% 
+  group_by(bifid) %>%
+  slice(1:5) %>%
+  as.data.frame(.) %>%
+  gather(., disease, abundance, Control:BD) %>%
+  select(!id) %>%
+  group_by(bifid) %>%
+  data.frame()
+
+
+```
+
+
+## Plot
+
+```{r,message=F,warning=F,fig.height=8, fig.width=8}
+
+
+
+  
+p <- ggplot(tabl_rangee, aes(x = Species, y = disease, color=disease))+
+  geom_point(aes(size=abundance)) +
+  guides(size="none")  +
+  labs( x= "", y = "", size = "", fill ="", color="") +
+  scale_x_discrete(limits = tabl_rangee$Species[1:10]) +
+  scale_y_discrete(limits = levels(map$disease)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  geom_text(aes(label = paste0(round(tabl_rangee$abundance*100,2),"%")), vjust=-1.5)
+
+p
+
+
+#ggsave("mean_bacteria.png")
+
+```
+
+
+
