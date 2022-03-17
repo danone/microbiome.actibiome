@@ -21,6 +21,9 @@ library(microbiomeutilities)
 library(viridis)
 library(RColorBrewer)
 library(fantaxtic)
+library(tibble)
+
+source(file = "functions.R")
 
 ```
 
@@ -29,13 +32,13 @@ library(fantaxtic)
 
 ```{r,message=F,warning=F}
 
-load("curated_v3_otu_tax.rda")
+#load("curated_v3_otu_tax.rda")
 
 enterotypes <- fread("enterotypes_curated_v3_prediction.csv")[,-1]
 
-otus <- data.frame(OTU)
+#otus <- data.frame(OTU)
 
-taxo <- data.frame(as.matrix(TAX))
+#taxo <- data.frame(as.matrix(TAX))
 
 
 ```
@@ -135,7 +138,7 @@ mapp <- map %>%
 
 otu_df <- otu
 
-otu <- t(as.matrix(otu))
+otu <- as.matrix(otu)
 
 
 tax <- as.matrix(tax)
@@ -148,7 +151,7 @@ tax <- as.matrix(tax)
 
 ```{r,message=F,warning=F}
 
-otu <- otu_table(otu, taxa_are_rows = FALSE)
+otu <- otu_table(otu, taxa_are_rows = TRUE)
 mapp <- sample_data(mapp)
 taxo <- tax_table(tax)
 
@@ -163,13 +166,20 @@ physeq_norm <- subset_taxa(phy, Genus %in% c("Bifidobacterium"))
 
 ```{r,message=F,warning=F}
 
-heatmap_phylo <- function(category, x, order){
+heatmap_phylo <- function(category, x, order, label_title){
+  
+  # on remove les samples qui ont que des 0 partout
+  
+  physeq_norm <- prune_samples(sample_sums(physeq_norm) > 0, physeq_norm)
+  
+  phy_normalized  <- transform_sample_counts(physeq_norm, function(x) x / sum(x))
+  
+  phy_normalized <- merge_samples_mean(phy_normalized, category)
 
+  phy_normalized  <- transform_sample_counts(phy_normalized, function(x) log10(x))
 
-  phy <- merge_samples(physeq_norm, category)
-
-  phy_normalized  <- transform_sample_counts(phy, function(x) log10(x/mean(x)))
-
+   #function(x) log10(x/mean(x))
+  
   phy_normalized_ten <- get_top_taxa(phy_normalized, 10, discard_other = TRUE)
 
   ##
@@ -178,24 +188,89 @@ heatmap_phylo <- function(category, x, order){
                     taxa.label = "Species", taxa.order = "Species", 
                     trans=NULL, low="beige", high="red", na.value="beige",sample.order = order)
 
-
-  p$labels$fill <- expression(log[10]('Relative Abundance'))
+  p$labels$fill <- label_title
   p$labels$x <- x
 
   p
   
 }
 
-heatmap_phylo("age_category", "Age Category", c("newborn","child","schoolage","adult","senior"))
+category_age <- c("newborn","child","schoolage","adult","senior")
+category_disease <- c("Control","Adenoma","Colorectal","Metabolic", "Bowel", "Arthritis", "BD")
+category_gender <- c("male","female")
+category_westernized <- c("no","yes")
 
-heatmap_phylo("disease", "Disease", c("Control","Adenoma","Colorectal","Metabolic", "Bowel", "Arthritis", "BD"))
 
-heatmap_phylo("gender", "Age Category", c("male","female"))
+heatmap_phylo("age_category", "Age Category", category_age, expression(log[10]*'(Relative Mean Abundance)'))
 
-heatmap_phylo("non_westernized", "Non Westernized",  c("no","yes"))
+heatmap_phylo("disease", "Disease", category_disease, expression(log[10]*'(Relative Mean Abundance)'))
 
-heatmap_phylo("Enterotypes_id", "Enterotype Clusters", as.character(1:24))
+heatmap_phylo("gender", "Age Category", category_gender, expression(log[10]*'(Relative Mean Abundance)'))
+
+heatmap_phylo("non_westernized", "Non Westernized",  category_westernized, expression(log[10]*'(Relative Mean Abundance)'))
+
+heatmap_phylo("Enterotypes_id", "Enterotype Clusters", as.character(1:24), expression(log[10]*'(Relative Mean Abundance)'))
 
 ```
 
+
+```{r,message=F,warning=F}
+
+## on va calculer les prévalences cette fois-ci :
+
+## age_category
+
+category <- "age_category"
+
+map <- data.frame(physeq_norm@sam_data) %>%
+  rownames_to_column(.,"sample_id") %>%
+  select(category, sample_id)
+
+tax <- data.frame(physeq_norm@tax_table) %>%
+  rownames_to_column(.,"tax") %>%
+  select(tax)
+  
+
+#rownames(prevalence_group_mean) <- gsub(".", "|", rownames(prevalence_group_mean))
+
+prevalence_group_mean <- data.frame(t(physeq_norm@otu_table)) %>%
+  rownames_to_column(.,"sample_id") %>%
+  merge(.,map, by="sample_id") %>%
+  select(-sample_id) %>%
+  group_by_at(category) %>%
+  summarise_all(., funs(mean(.>0))) %>%
+  column_to_rownames(var = category) %>%
+  t(.) %>%
+  data.frame()
+rownames(prevalence_group_mean) <- gsub("\\.", "\\|", rownames(prevalence_group_mean))
+
+prevalence_group_mean <- prevalence_group_mean %>%
+  rownames_to_column(.,"tax") %>%
+  merge(., tax, by="tax") %>%
+  column_to_rownames(.,var='tax')
+
+## on va regrouper
+
+rownames(map) <- NULL
+prevalence_group_mean <- otu_table(data.frame(prevalence_group_mean), taxa_are_rows = TRUE)
+mapp <- data.frame(category = category_age, fill = category_age) %>%
+  column_to_rownames(.,var='category')
+
+
+phy <- phyloseq(prevalence_group_mean, physeq_norm@tax_table, sample_data(mapp))
+
+phy <- get_top_taxa(phy, 10, discard_other = TRUE)
+
+#phy  <- transform_sample_counts(phy, function(x) log10(x))
+
+p <- plot_heatmap(phy,
+                  taxa.label = "Species", taxa.order = "Species", 
+                  low="beige", high="red", na.value="beige",sample.order = category_age)
+
+  p$labels$fill <- expression('Prevalence')
+  p$labels$x <- ''
+
+p
+
+```
 
