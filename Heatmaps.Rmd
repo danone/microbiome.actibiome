@@ -22,6 +22,7 @@ library(viridis)
 library(RColorBrewer)
 library(fantaxtic)
 library(tibble)
+library("pheatmap")
 
 source(file = "functions.R")
 
@@ -159,6 +160,10 @@ phy <- phyloseq(otu, mapp, taxo)
 
 physeq_norm <- subset_taxa(phy, Genus %in% c("Bifidobacterium"))
 
+physeq_norm <- prune_samples(sample_sums(physeq_norm) > 0, physeq_norm)
+  
+physeq_norm  <- transform_sample_counts(physeq_norm, function(x) x / sum(x))
+
 ```
 
 
@@ -170,13 +175,9 @@ heatmap_phylo <- function(category, x, order, label_title){
   
   # on remove les samples qui ont que des 0 partout
   
-  physeq_norm <- prune_samples(sample_sums(physeq_norm) > 0, physeq_norm)
-  
-  phy_normalized  <- transform_sample_counts(physeq_norm, function(x) x / sum(x))
-  
-  phy_normalized <- merge_samples_mean(phy_normalized, category)
+  phy_normalized <- merge_samples_mean(physeq_norm, category)
 
-  phy_normalized  <- transform_sample_counts(phy_normalized, function(x) log10(x))
+  phy_normalized  <- transform_sample_counts(phy_normalized, function(x) log10(x+ 0.000001))
 
    #function(x) log10(x/mean(x))
   
@@ -186,12 +187,15 @@ heatmap_phylo <- function(category, x, order, label_title){
   
   p <- plot_heatmap(phy_normalized_ten,
                     taxa.label = "Species", taxa.order = "Species", 
-                    trans=NULL, low="beige", high="red", na.value="beige",sample.order = order)
+                    trans=NULL, low="beige", high="red", na.value="beige",sample.order = order, cluster_rows = TRUE)
+  
 
   p$labels$fill <- label_title
   p$labels$x <- x
-
+  
   p
+  
+  #pheatmap(data.frame(phy_normalized_ten@otu_table))
   
 }
 
@@ -205,7 +209,7 @@ heatmap_phylo("age_category", "Age Category", category_age, expression(log[10]*'
 
 heatmap_phylo("disease", "Disease", category_disease, expression(log[10]*'(Relative Mean Abundance)'))
 
-heatmap_phylo("gender", "Age Category", category_gender, expression(log[10]*'(Relative Mean Abundance)'))
+heatmap_phylo("gender", "Gender", category_gender, expression(log[10]*'(Relative Mean Abundance)'))
 
 heatmap_phylo("non_westernized", "Non Westernized",  category_westernized, expression(log[10]*'(Relative Mean Abundance)'))
 
@@ -216,61 +220,77 @@ heatmap_phylo("Enterotypes_id", "Enterotype Clusters", as.character(1:24), expre
 
 ```{r,message=F,warning=F}
 
-## on va calculer les prévalences cette fois-ci :
-
-## age_category
-
 category <- "age_category"
 
-map <- data.frame(physeq_norm@sam_data) %>%
-  rownames_to_column(.,"sample_id") %>%
-  select(category, sample_id)
-
-tax <- data.frame(physeq_norm@tax_table) %>%
-  rownames_to_column(.,"tax") %>%
-  select(tax)
+heatmap_phylo_prevalence <- function(category, x, order, physeq_norm){
+  
+  map <- data.frame(physeq_norm@sam_data) %>%
+    rownames_to_column(.,"sample_id") %>%
+    select(category, sample_id)
   
 
-#rownames(prevalence_group_mean) <- gsub(".", "|", rownames(prevalence_group_mean))
+  tax <- data.frame(physeq_norm@tax_table) %>%
+    rownames_to_column(.,"tax") %>%
+    select(tax)
+  
 
-prevalence_group_mean <- data.frame(t(physeq_norm@otu_table)) %>%
-  rownames_to_column(.,"sample_id") %>%
-  merge(.,map, by="sample_id") %>%
-  select(-sample_id) %>%
-  group_by_at(category) %>%
-  summarise_all(., funs(mean(.>0))) %>%
-  column_to_rownames(var = category) %>%
-  t(.) %>%
-  data.frame()
-rownames(prevalence_group_mean) <- gsub("\\.", "\\|", rownames(prevalence_group_mean))
+  #rownames(prevalence_group_mean) <- gsub(".", "|", rownames(prevalence_group_mean))
 
-prevalence_group_mean <- prevalence_group_mean %>%
-  rownames_to_column(.,"tax") %>%
-  merge(., tax, by="tax") %>%
-  column_to_rownames(.,var='tax')
+  prevalence_group_mean <- data.frame(t(physeq_norm@otu_table)) %>%
+    rownames_to_column(.,"sample_id") %>%
+    merge(.,map, by="sample_id") %>%
+    select(-sample_id) %>%
+    group_by_at(category) %>%
+    summarise_all(., funs(mean(.>0))) %>%
+    column_to_rownames(var = category) %>%
+    t(.) %>%
+    data.frame()
+  
+  rownames(prevalence_group_mean) <- gsub("\\.", "\\|", rownames(prevalence_group_mean))
 
-## on va regrouper
+  
+  prevalence_group_mean <- prevalence_group_mean %>%
+    rownames_to_column(.,"tax") %>%
+    merge(., tax, by="tax") %>%
+    column_to_rownames(.,var='tax')
 
-rownames(map) <- NULL
-prevalence_group_mean <- otu_table(data.frame(prevalence_group_mean), taxa_are_rows = TRUE)
-mapp <- data.frame(category = category_age, fill = category_age) %>%
-  column_to_rownames(.,var='category')
+  
+  ## on va regrouper
+
+  
+  rownames(map) <- NULL
+  prevalence_group_mean <- otu_table(data.frame(prevalence_group_mean), taxa_are_rows = TRUE)
+  mapp <- data.frame(category = order, fill = order) %>%
+    column_to_rownames(.,var='category')
 
 
-phy <- phyloseq(prevalence_group_mean, physeq_norm@tax_table, sample_data(mapp))
+  phy <- phyloseq(prevalence_group_mean, physeq_norm@tax_table, sample_data(mapp))
 
-phy <- get_top_taxa(phy, 10, discard_other = TRUE)
+  phy <- get_top_taxa(phy, 10, discard_other = TRUE)
+  
+  taxa_names(phy) <- 
 
-#phy  <- transform_sample_counts(phy, function(x) log10(x))
-
-p <- plot_heatmap(phy,
-                  taxa.label = "Species", taxa.order = "Species", 
-                  low="beige", high="red", na.value="beige",sample.order = category_age)
+  p <- plot_heatmap(phy,
+                    taxa.label = "Species", taxa.order = "Species", 
+                    low="beige", high="red", na.value="beige",sample.order = order)
 
   p$labels$fill <- expression('Prevalence')
-  p$labels$x <- ''
+  p$labels$x <- x
 
-p
+  
+  p
+
+}
+
+
+heatmap_phylo_prevalence("age_category", "Age Category", category_age, physeq_norm = subset_samples(physeq_norm, !is.na(age_category)))
+
+heatmap_phylo_prevalence("disease", "Disease", category_disease, physeq_norm = subset_samples(physeq_norm, !is.na(disease)))
+
+heatmap_phylo_prevalence("gender", "Gender", category_gender, physeq_norm = subset_samples(physeq_norm, !is.na(gender)))
+
+heatmap_phylo_prevalence("non_westernized", "Non Westernized",  category_westernized, physeq_norm = subset_samples(physeq_norm, !is.na(non_westernized)))
+
 
 ```
 

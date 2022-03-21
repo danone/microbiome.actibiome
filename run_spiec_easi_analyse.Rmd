@@ -24,18 +24,20 @@ library(igraph)
 library(data.table)
 library(fantaxtic)
 library(metagMisc)
+library(tibble)
 
 ```
+
 
 ## Import données
 
 ```{r,message=F,warning=F}
 
-#load("curated_v3_otu_tax.rda")
+load("curated_v3_otu_tax.rda")
 
-#otus <- data.frame(OTU)
+otus <- data.frame(OTU)
 
-#taxo <- data.frame(TAX)
+taxo <- data.frame(TAX)
 
 
 ```
@@ -95,7 +97,7 @@ tax <- as.matrix(tax)
 
 ```{r,message=F,warning=F}
 
-otu <- otu_table(t(otu), taxa_are_rows = FALSE)
+otu <- otu_table(otu, taxa_are_rows = TRUE)
 mapp <- sample_data(mapp)
 taxo <- tax_table(tax)
 
@@ -112,17 +114,14 @@ phy <- phyloseq(otu, mapp, taxo)
 
 phy <- subset_samples(phy, body_site == "stool")
 
-phy <- subset_samples(phy, antibiotics_current_use == "no")
+phy <- subset_samples(phy, w == "no")
 
 phy <- subset_samples(phy, age_category == "adult")
-
-phy <- subset_samples(phy, non_westernized == "no")
 
 phy <- subset_taxa(phy, Genus %in% c("Bifidobacterium"))
 
 phy <- prune_samples(sample_sums(phy)>=1000, phy) # select sample with at least 1000 reads assigned to bifidobacterium
 
-phy <- get_top_taxa(phy, 15, discard_other = TRUE) ## take 10 top taxa with highest relative counts
 
 ```
 
@@ -140,7 +139,8 @@ otu.c.w <- otu_table(phy)@.Data
 tax.c <- as.data.frame(tax_table(phy)@.Data)
 
 
-otu.c.w <- vegan::rrarefy(otu.c.w, 1000)
+# rarefaction to 1000 reads
+otu.c.w <- t(vegan::rrarefy(t(otu.c.w), 1000))
 
 ```
 
@@ -153,7 +153,7 @@ set.seed(1244)
 
 
 
-net.c.w <- spiec.easi(otu.c.w,
+net.c.w <- spiec.easi(otu.c.w[,1:100],
                     method='mb',
                     lambda.min.ratio=1e-2,
                     nlambda=20,
@@ -168,8 +168,7 @@ net.c.w <- spiec.easi(otu.c.w,
 
 spiec.graph_species=adj2igraph(getRefit(net.c.w), vertex.attr=list(name=taxa_names(phy)))
 
-
-plot_network(spiec.graph_species, phy, type= 'taxa', color="Species", label = NULL)
+plot_network(spiec.graph_species, phy, type= 'taxa', color="Species", title='Antibiotics current use = no', label=NULL)
 
 
 ```
