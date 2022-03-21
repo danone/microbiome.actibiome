@@ -1,3 +1,5 @@
+
+
 merge_samples_mean <- function(physeq, group){
   "This function allow to merge samples from a phyloseq object by a category by doing the mean of samples in each category"
   
@@ -28,3 +30,120 @@ merge_samples_mean <- function(physeq, group){
   
   return(merged)
 }
+
+########################################
+
+
+transform_disease <- function(map){
+  
+
+  map$disease <- factor(map$disease)
+
+  # tout d'abord on simplifie les facteurs car il y a en a 23
+
+  # tous les facteurs contenant "adenoma" :
+  Adenoma <- grep("adenoma", levels(map$disease),fixed=TRUE,state.name, value = TRUE)
+
+  # tous les facteurs contenant "CRC" :
+  Colorectal <- c("metastases",grep("CRC", levels(map$disease),fixed=TRUE,state.name, value = TRUE))
+
+  # les maladies métaboliques (T2D, hypercholestérolémie etc etc)
+
+  Metabolic <- c("ACVD", "hypercholesterolemia", "hypertension", "hypertension;metastases", "IGT", "T2D")
+
+  # enfin le bipolar disorder et 
+
+  Bowel <- c("IBD")
+
+  Arthritis <- c("RA")
+
+  levels(map$disease) = list(
+    "Control" = c("healthy"),
+    "Adenoma" =  Adenoma,
+    "Colorectal" = Colorectal,
+    "Metabolic" = Metabolic,
+    "Bowel" = Bowel,
+    "Arthritis" = Arthritis,
+    "BD" = c('BD'))
+
+  return(map)
+
+}
+
+
+########################################
+
+
+species_taxa <- function(phy){
+  "This function allows to get the species of a list of taxanames in a phy object"
+  data <- data.frame(phy@tax_table)
+  
+  return(data$Species)
+}
+
+
+select_n_otu <- function(n, tableau_otu) {
+  "Select les n otu les plus abondants dans un fichier otu"
+  
+  prevalence <- tableau_otu %>%
+    t(.) %>%
+    data.frame(.) %>%
+    summarise_all(., funs(mean(.>0))) %>%
+    t(.) %>%
+    data.frame(.) %>%
+    arrange(desc(.)) %>%
+    slice(1:n)
+  
+  return(rownames(prevalence))
+  
+}
+
+########################################
+
+
+subset_bifid_non_bifid <- function(n, m, otu, tax){
+  #"select les m espèces bifid, et n espèces non bifid les plus prévalentes dans tous les groupes de la table otu"
+
+  
+  tax <- as.data.frame(tax)
+  
+  otu <- as.data.frame(otu)
+  
+  especes <- tax %>%
+    mutate(bifid =
+             case_when(Genus == 'Bifidobacterium' ~ "oui", 
+                       TRUE ~ "non")) %>%
+    select(Species, bifid)
+  
+  
+  # les bifids
+  
+  les_bifid <- especes %>%
+    filter(bifid == "oui")
+  
+  bifid_otu <- otu %>%
+    filter(rownames(.) %in% rownames(les_bifid))
+
+  
+  m_bifid <- select_n_otu(m, bifid_otu)
+  
+  # les non bifids
+  
+  non_bifid <- especes %>%
+    filter(bifid == "non")
+  
+  n_bifid <- otu %>%
+    filter(rownames(.) %in% rownames(non_bifid))
+  
+  n_non_bifid <- select_n_otu(n, n_bifid)
+  
+  
+  
+  n_non_bifid <- gsub("\\.", "\\|", n_non_bifid)
+  
+  m_bifid <- gsub("\\.", "\\|", m_bifid)
+  
+  return(list("m_bifid" = m_bifid, "n_non_bifid" = n_non_bifid))
+}
+
+#lll <- subset_bifid_non_bifid(10,20,otus,tax)
