@@ -1,0 +1,140 @@
+---
+title: "DMM_clustering"
+author: "ruben"
+date: "30/03/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## LIbrairies
+
+```{r,message=F,warning=F}
+
+library(microbiome)
+library(DirichletMultinomial)
+library(reshape2)
+library(magrittr)
+library(dplyr)
+
+source(file = "functions.R")
+
+```
+
+## Data
+
+```{r,message=F,warning=F}
+
+# we load this file to have taxa table specifically
+load(file = "study_after_QC.rda")
+
+# we load only the phy object
+load(file = "phy_curated_data_after_QC.rda")
+
+phy <- subset_samples(phy, body_site == "stool")
+
+phy <- subset_samples(phy, age_category == "adult")
+
+phy <- subset_samples(phy, antibiotics_current_use == "no")
+
+phy <- subset_samples(phy, disease == "Control")
+
+
+```
+
+
+
+## Transformation
+
+```{r,message=F,warning=F}
+
+phy.comp <- microbiome::transform(phy, "compositional")
+# compositional transformation, ie, relative abundance
+
+# To speed up, only consider the core taxa
+# that are prevalent at 0.1% relative abundance in 50% of the samples
+
+taxa <- core_members(phy.comp, detection = 0.1/100, prevalence = 50/100)
+
+pseq <- prune_taxa(taxa, phy)
+
+# Pick the OTU count matrix
+# and convert it into samples x taxa format
+dat <- abundances(pseq)
+count_raw <- as.matrix(t(dat))
+
+# rowsums equal zero (sample with 0 count everywhere) need to be deleted
+
+count <- count_raw %>%
+  as.data.frame(.) %>%
+  filter_all(., any_vars(. != 0)) %>%
+  as.matrix(.)
+
+# transform colnames to species name
+
+rownames(count) <- get_species(tax,rownames(count))
+
+```
+
+## Model fit
+
+```{r,message=F,warning=F}
+
+#fit <- lapply(1:10, dmn, count = count, verbose=TRUE)
+
+#save(fit, file="DMM_fit")
+
+load("DMM_fit")
+
+```
+
+## Laplace check
+
+```{r,message=F,warning=F}
+
+lplc <- base::sapply(fit, DirichletMultinomial::laplace)
+
+## pick the optimal model
+
+best <- fit[[which.min(unlist(lplc))]]
+
+mixturewt(best)
+
+```
+
+## Laplace check
+
+```{r,message=F,warning=F}
+
+## sample component assignments
+
+model <- apply(mixture(best), 1, which.max)
+
+```
+
+## Laplace check
+
+```{r,message=F,warning=F}
+
+for (k in seq(ncol(fitted(best)))) {
+  d <- melt(fitted(best))
+  colnames(d) <- c("OTU", "cluster", "value")
+  d <- subset(d, cluster == k) %>%
+     # Arrange OTUs by assignment strength
+     arrange(value) %>%
+     mutate(OTU = factor(OTU, levels = unique(OTU))) %>%
+     # Only show the most important drivers
+     filter(abs(value) > quantile(abs(value), 0.8))     
+
+  p <- ggplot(d, aes(x = OTU, y = value)) +
+       geom_bar(stat = "identity") +
+       coord_flip() +
+       labs(title = paste("Top drivers: community type", k))
+  print(p)
+}
+
+```
+
+
