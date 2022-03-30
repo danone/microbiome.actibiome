@@ -74,7 +74,7 @@ count <- count_raw %>%
 
 # transform colnames to species name
 
-rownames(count) <- get_species(tax,rownames(count))
+colnames(count) <- get_species(tax,colnames(count))
 
 ```
 
@@ -128,10 +128,13 @@ for (k in seq(ncol(fitted(best)))) {
      # Only show the most important drivers
      filter(abs(value) > quantile(abs(value), 0.8))     
 
-  p <- ggplot(d, aes(x = OTU, y = value)) +
-       geom_bar(stat = "identity") +
-       coord_flip() +
-       labs(title = paste("Top drivers: community type", k))
+  p <- ggplot(d, aes(x = OTU, y = value, fill = OTU)) +
+    geom_bar(stat = "identity") +
+    coord_flip() +
+    coord_flip() +
+    guides(fill = guide_legend(reverse=T)) +
+    labs(title = paste("Top drivers: community type", k))
+  
   print(p)
 }
 
