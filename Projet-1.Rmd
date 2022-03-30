@@ -54,6 +54,23 @@ tax <- taxo
 map <- sampleMetadata
 
 
+## on inverse non_westernized
+
+map <- map %>%
+  mutate(., westernized =
+            case_when(non_westernized == 'yes' ~ "no",
+                      non_westernized == 'no' ~ "yes"))
+
+```
+
+## On garde les données
+
+```{r,message=F,warning=F}
+
+bb <- map %>%
+  filter(westernized == "no" & age_category=="newborn")
+  
+  
 ```
 
 ## Regrouper les maladies
@@ -220,6 +237,8 @@ plot('antibiotics_current_use','Patients Counts by Antibiotics Current Use', 'An
 
 plot('disease','Patients Counts by Health Condition', 'Health Condition')
 
+plot('westernized','Patients Counts by Westernized', 'Westernized')
+
 ```
 
 
@@ -311,13 +330,13 @@ rownames(map) <- map$sample_id
 map <- merge(x = map, y = data.frame(common.ids), by.x = "sample_id", by.y="common.ids")
 
 # transformation facteur de la col non_westernized
-map$non_westernized  = factor(map$non_westernized, levels=c("no", "yes"))
+map$westernized  = factor(map$westernized, levels=c("no", "yes"))
 
 # on garde que ceux qui ne consomment pas d'antibio
 
 map_adult_no_antibio <- map[which(map$antibiotics_current_use=="no" & map$age_category=="adult"),]
 
-p<-ggboxplot(map_adult_no_antibio, x="non_westernized", y="reads_bifid", fill="non_westernized",outlier.shape = NA )
+p<-ggboxplot(map_adult_no_antibio, x="westernized", y="reads_bifid", fill="westernized",outlier.shape = NA )
   
 p <- p +
   
@@ -325,7 +344,7 @@ p <- p +
   
   theme_minimal() +
   
-  labs(x = NULL, y = NULL, title = "Relative Abundance of Bifidobacterium among Antibiotic non-takers",fill= "Non Westernized") +
+  labs(x = NULL, y = NULL, title = "Relative Abundance of Bifidobacterium among Antibiotic non-takers",fill= "Westernized") +
   
   coord_cartesian(ylim=c(0,0.3))
 
@@ -358,16 +377,29 @@ map_age <- map %>%
 
 map_age$age_category <- factor(map_age$age_category, levels=c("newborn","child","schoolage","adult","senior"))
 
-ggplot(map,                       
-       aes(x = age_category,
-           y = reads_bifid, color=age_category )) +
-  geom_violin() +
-  geom_sina() +
-  labs(x = NULL, y = NULL, title = "Relative Abundance of Bifidobacterium, no Antibiotics Takers") + labs(color= "Age Category") +
-  scale_color_brewer(palette = "Set2", labels = c("newborn (137)","child (160)","schoolage (88)","Adult (4921)", "Senior (422)")) +
-  scale_x_discrete(limits=c("newborn","child","schoolage","adult","senior")) +
+
+p<-ggplot(map_age, aes(x = age_category,
+                       y = reads_bifid, fill=age_category )) +
+  geom_boxplot(outlier.shape = NA) + labs(fill= "Age category")
   
-  stat_compare_means(label.y = 0.9,label.x = "child")
+p <- p + scale_fill_brewer(palette="Dark2", labels = c("newborn (137)","child (160)","schoolage (88)","Adult (4921)", "Senior #(422)")) +  
+  
+  theme_minimal() + labs(x = NULL, y = NULL, title = "Relative Abundance of Bifidobacterium, no Antibiotics Takers") + labs(color= "Age Category") +
+  coord_cartesian(ylim=c(0,0.40)) + stat_compare_means(label.y = 0.35, label.x ="child") +
+  scale_x_discrete(limits=c("newborn","child","schoolage","adult","senior"))
+p
+
+
+#ggplot(map,                       
+#       aes(x = age_category,
+#           y = reads_bifid, fill=age_category )) +
+#  geom_boxplot(outlier.shape = NA) +
+#  labs(x = NULL, y = NULL, title = "Relative Abundance of Bifidobacterium, no Antibiotics Takers") + labs(color= "Age #Category") +
+#  scale_color_brewer(palette = "Set2", labels = c("newborn (137)","child (160)","schoolage (88)","Adult (4921)", "Senior #(422)")) +
+#  scale_x_discrete(limits=c("newborn","child","schoolage","adult","senior")) +
+#  theme_minimal() +
+#  coord_cartesian(ylim=c(0,1)) +
+#  stat_compare_means(label.y = 0.50,label.x = "child")
 
 ```
 

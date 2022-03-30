@@ -9,6 +9,8 @@ output: html_document
 ## Librairies
 
 ```{r,message=F,warning=F}
+
+
 library(data.table)
 library(devtools)
 library(microbiome)
@@ -26,6 +28,8 @@ library(fantaxtic)
 library(metagMisc)
 library(tibble)
 
+source(file = "functions.R")
+
 ```
 
 
@@ -33,12 +37,13 @@ library(tibble)
 
 ```{r,message=F,warning=F}
 
-load("curated_v3_otu_tax.rda")
+load(file = "study_after_QC.rda")
 
-otus <- data.frame(OTU)
+OTU <- otus
 
-taxo <- data.frame(TAX)
+MAP <- map
 
+TAX <- tax
 
 ```
 
@@ -48,14 +53,14 @@ taxo <- data.frame(TAX)
 
 ## on prend les ID en commun
 
-common.ids <- intersect(t(colnames(otus)), sampleMetadata$sample_id)
+common.ids <- intersect(t(colnames(OTU)), MAP$sample_id)
 
-otu <- otus[,common.ids]
+otu <- OTU[,common.ids]
 
 
-tax <- taxo
+tax <- TAX
 
-map <- sampleMetadata %>%
+map <- MAP %>%
   filter(sample_id %in% common.ids)
 
 
@@ -87,7 +92,15 @@ mapp <- map %>%
 otu <- as.matrix(otu)
 
 
-tax <- as.matrix(tax)
+## au niveau du genre on veut voir l'interaction entre les bifids et les non bifids
+
+taxo <- tax %>%
+  mutate(Genus =
+           case_when(Genus == 'Bifidobacterium' ~ "Bifidobacterium", 
+                     TRUE ~ "Other Genus")) %>%
+  as.matrix(tax) %>%
+  tax_table(.)
+
 
 ##
 
@@ -99,9 +112,11 @@ tax <- as.matrix(tax)
 
 otu <- otu_table(otu, taxa_are_rows = TRUE)
 mapp <- sample_data(mapp)
-taxo <- tax_table(tax)
+
 
 phy <- phyloseq(otu, mapp, taxo)
+
+save(phy, file="phy_curated_data_after_QC.rda")
 
 ```
 
@@ -109,16 +124,41 @@ phy <- phyloseq(otu, mapp, taxo)
 
 ```{r,message=F,warning=F}
 
-
 # que les échantillons stool
 
 phy <- subset_samples(phy, body_site == "stool")
 
-phy <- subset_samples(phy, w == "no")
-
 phy <- subset_samples(phy, age_category == "adult")
 
-phy <- subset_taxa(phy, Genus %in% c("Bifidobacterium"))
+```
+
+## Selections des otus a mettre en relation
+
+```{r,message=F,warning=F}
+
+## we will take the first 100 non bifid otus, most abundant in this cohort
+## and all 32 bifid otus to calculate the matrix of covarience
+
+#otu_filtered <- data.frame(phy@otu_table)
+  
+#tax_filtered <- data.frame(phy@tax_table)
+
+
+```
+
+## Subset des données
+
+```{r,message=F,warning=F}
+
+# en 1 : en gros 100 premiers non bifids, 32 bifid
+
+names_otu_interet <- subset_bifid_non_bifid(100, 32, otu_filtered, tax_filtered) ## 100 most abundant non bifid taxa, and 32 all bifid
+
+# en 2 : les 132 les plus prévalents
+
+taxa_cent <- select_n_otu(150, otu_filtered)
+
+phy <- prune_taxa(taxa_names(phy) %in% taxa_cent, phy)
 
 phy <- prune_samples(sample_sums(phy)>=1000, phy) # select sample with at least 1000 reads assigned to bifidobacterium
 
@@ -140,7 +180,7 @@ tax.c <- as.data.frame(tax_table(phy)@.Data)
 
 
 # rarefaction to 1000 reads
-otu.c.w <- t(vegan::rrarefy(t(otu.c.w), 1000))
+otu.c.w <- vegan::rrarefy(otu.c.w, 1000)
 
 ```
 
@@ -153,7 +193,7 @@ set.seed(1244)
 
 
 
-net.c.w <- spiec.easi(otu.c.w[,1:100],
+net.c.w <- spiec.easi(phy,
                     method='mb',
                     lambda.min.ratio=1e-2,
                     nlambda=20,
@@ -162,14 +202,90 @@ net.c.w <- spiec.easi(otu.c.w[,1:100],
 
 ```
 
+## process
+
+```{r,message=F,warning=F,fig.height=9, fig.width=12}
+
+graph=adj2igraph(getRefit(net.c.w),
+                               vertex.attr=list(name=taxa_names(phy)),
+                               diag = TRUE)
+
+```
+
+## process que les noms qui nous intéressent
+
+```{r,message=F,warning=F,fig.height=9, fig.width=12}
+#plot_tout_fait
+
+#ggsave("network.png")
+
+
+###
+
+pal <- brewer.pal(2,"Accent")
+
+name_species <- get_species(tax, V(graph)$name)
+Group <- factor(get_bifid(tax, V(graph)$name))
+
+vertex.col <- pal[Group]
+
+V(graph)$name <- name_species
+
+## on ne va afficher le nom que des bifids et
+
+lien <- get.edgelist(graph)
+
+## je vais afficher adolescentis seulement et les b liées à adolescentis (espèce commensale)
+
+select_bact <- lien %>%
+  data.frame(.) %>%
+  filter(grepl('adolescentis|animalis|longum|breve|bifidum', X1))
+
+bact_a_afficher <- unique(c(unique(as.character(select_bact$X1)), unique(as.character(select_bact$X2))))
+
+### j'affiche que ces nom dans le network d'interaction
+
+test <- V(graph)$name %>%
+  as.data.frame()
+
+test$. <- as.character(test$.)
+names(test) <- "V1"
+
+test <- test %>%
+  mutate(r = case_when(V1 %in% bact_a_afficher ~ V1
+                        ))
+
+V(graph)$name <- as.character(test$r)
+
+```
+
+
 ## Plot
 
-```{r,message=F,warning=F}
+```{r,message=F,warning=F,fig.height=12, fig.width=12}
 
-spiec.graph_species=adj2igraph(getRefit(net.c.w), vertex.attr=list(name=taxa_names(phy)))
+plot_tout_fait <- plot_network(graph, phy, type= 'taxa',
+                               color ="Genus",  label='Species')
+#plot_tout_fait
 
-plot_network(spiec.graph_species, phy, type= 'taxa', color="Species", title='Antibiotics current use = no', label=NULL)
+```
 
+## Plot
+
+```{r,message=F,warning=F,fig.height=10, fig.width=9}
+
+plot(graph,
+     layout=layout.fruchterman.reingold(graph),
+     vertex.color=vertex.col , vertex.cex = 0,
+     edge.arrow.size=0.01, vertex.size = 4,vertex.label.color= "black", displaylabels = TRUE, boxed.labels =FALSE, vertex.label.dist=0.5)
+
+legend("topleft",
+       legend=levels(Group),
+       fill=pal, border=NA, col="black")
+
+#plot_tout_fait <- plot_network(spiec.graph_species, phy, type= 'taxa',
+                               #color ="Genus",  label='Species')
+#plot_tout_fait
 
 ```
 

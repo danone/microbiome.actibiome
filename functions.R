@@ -94,6 +94,8 @@ select_n_otu <- function(n, tableau_otu) {
     arrange(desc(.)) %>%
     slice(1:n)
   
+  rownames(prevalence) <- gsub("\\.", "\\|", rownames(prevalence))
+  
   return(rownames(prevalence))
   
 }
@@ -110,16 +112,13 @@ subset_bifid_non_bifid <- function(n, m, otu, tax){
   otu <- as.data.frame(otu)
   
   especes <- tax %>%
-    mutate(bifid =
-             case_when(Genus == 'Bifidobacterium' ~ "oui", 
-                       TRUE ~ "non")) %>%
-    select(Species, bifid)
+    select(Species, Genus)
   
   
   # les bifids
   
   les_bifid <- especes %>%
-    filter(bifid == "oui")
+    filter(Genus == "Bifidobacterium")
   
   bifid_otu <- otu %>%
     filter(rownames(.) %in% rownames(les_bifid))
@@ -130,7 +129,7 @@ subset_bifid_non_bifid <- function(n, m, otu, tax){
   # les non bifids
   
   non_bifid <- especes %>%
-    filter(bifid == "non")
+    filter(Genus != "Bifidobacterium")
   
   n_bifid <- otu %>%
     filter(rownames(.) %in% rownames(non_bifid))
@@ -143,7 +142,52 @@ subset_bifid_non_bifid <- function(n, m, otu, tax){
   
   m_bifid <- gsub("\\.", "\\|", m_bifid)
   
-  return(list("m_bifid" = m_bifid, "n_non_bifid" = n_non_bifid))
+  return(c(n_non_bifid, m_bifid))
 }
 
 #lll <- subset_bifid_non_bifid(10,20,otus,tax)
+
+
+#####################################################"
+## get species
+
+## get species d'une table otu
+
+get_species <- function(tax,liste_taxa){
+  "Renvoie la liste des espèces à partir d'une liste de taxa"
+  
+  tax_t <- tax %>%
+    rownames_to_column("taxa")
+  
+  taxa <- data.frame(taxa=liste_taxa)
+  
+  names <- taxa %>%
+    left_join(.,tax_t, by="taxa") %>%
+    select(Species)
+  
+  return(as.character(names$Species))
+  
+}
+
+get_bifid <- function(tax,liste_taxa){
+  "Renvoie la liste des bifid/nonbifid à partir d'une liste de taxa"
+  
+  tax_t <- tax %>%
+    rownames_to_column("taxa") %>%
+    mutate(Genus =
+             case_when(Genus == 'Bifidobacterium' ~ "Bifidobacterium", 
+                       TRUE ~ "Other Genus"))
+  
+  taxa <- data.frame(taxa=liste_taxa)
+  
+  names <- taxa %>%
+    left_join(.,tax_t, by="taxa") %>%
+    select(Genus)
+  
+  return(as.character(names$Genus))
+  
+}
+
+
+
+

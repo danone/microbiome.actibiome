@@ -177,7 +177,7 @@ heatmap_phylo <- function(category, x, order, label_title){
   
   phy_normalized <- merge_samples_mean(physeq_norm, category)
 
-  phy_normalized  <- transform_sample_counts(phy_normalized, function(x) log10(x+ 0.000001))
+  #phy_normalized  <- transform_sample_counts(phy_normalized, function(x) log10(x))
 
    #function(x) log10(x/mean(x))
   
@@ -195,7 +195,14 @@ heatmap_phylo <- function(category, x, order, label_title){
   
   p
   
-  #pheatmap(data.frame(phy_normalized_ten@otu_table))
+  taxa <- plot_taxa_heatmap(phy_normalized_ten,
+                            subset.top = 10,
+                            transformation = "log10",
+                            VariableA = "disease",
+                            heatcolors = colorRampPalette(rev(brewer.pal(n = 7, name = "RdYlBu")))(100),
+                            )
+  
+  taxa
   
 }
 
@@ -207,13 +214,13 @@ category_westernized <- c("no","yes")
 
 heatmap_phylo("age_category", "Age Category", category_age, expression(log[10]*'(Relative Mean Abundance)'))
 
-heatmap_phylo("disease", "Disease", category_disease, expression(log[10]*'(Relative Mean Abundance)'))
+#heatmap_phylo("disease", "Disease", category_disease, expression(log[10]*'(Relative Mean Abundance)'))
 
-heatmap_phylo("gender", "Gender", category_gender, expression(log[10]*'(Relative Mean Abundance)'))
+#heatmap_phylo("gender", "Gender", category_gender, expression(log[10]*'(Relative Mean Abundance)'))
 
-heatmap_phylo("non_westernized", "Non Westernized",  category_westernized, expression(log[10]*'(Relative Mean Abundance)'))
+#heatmap_phylo("non_westernized", "Non Westernized",  category_westernized, expression(log[10]*'(Relative Mean Abundance)'))
 
-heatmap_phylo("Enterotypes_id", "Enterotype Clusters", as.character(1:24), expression(log[10]*'(Relative Mean Abundance)'))
+#heatmap_phylo("Enterotypes_id", "Enterotype Clusters", as.character(1:24), expression(log[10]*'(Relative Mean Abundance)'))
 
 ```
 
@@ -267,8 +274,6 @@ heatmap_phylo_prevalence <- function(category, x, order, physeq_norm){
   phy <- phyloseq(prevalence_group_mean, physeq_norm@tax_table, sample_data(mapp))
 
   phy <- get_top_taxa(phy, 10, discard_other = TRUE)
-  
-  taxa_names(phy) <- 
 
   p <- plot_heatmap(phy,
                     taxa.label = "Species", taxa.order = "Species", 
@@ -291,6 +296,9 @@ heatmap_phylo_prevalence("gender", "Gender", category_gender, physeq_norm = subs
 
 heatmap_phylo_prevalence("non_westernized", "Non Westernized",  category_westernized, physeq_norm = subset_samples(physeq_norm, !is.na(non_westernized)))
 
+#heatmap_phylo_prevalence("Enterotypes_id", "Enterotype Clusters", as.character(1:24), physeq_norm = physeq_norm)
+
+#physeq_norm = subset_samples(physeq_norm, !is.na(Enterotypes_id))
 
 ```
 
