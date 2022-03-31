@@ -13,11 +13,15 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r,message=F,warning=F}
 
+library(data.table)
+library(devtools)
 library(microbiome)
 library(DirichletMultinomial)
 library(reshape2)
 library(magrittr)
+library(phyloseq)
 library(dplyr)
+library(tibble)
 
 source(file = "functions.R")
 
@@ -53,12 +57,13 @@ phy <- subset_samples(phy, disease == "Control")
 phy.comp <- microbiome::transform(phy, "compositional")
 # compositional transformation, ie, relative abundance
 
-# To speed up, only consider the core taxa
-# that are prevalent at 0.1% relative abundance in 50% of the samples
+# only consider bifid species
 
-taxa <- core_members(phy.comp, detection = 0.1/100, prevalence = 50/100)
+pseq <- subset_taxa(phy.comp, Genus %in% c("Bifidobacterium"))
 
-pseq <- prune_taxa(taxa, phy)
+#taxa <- core_members(phy.comp, detection = 0.1/100, prevalence = 50/100)
+
+#pseq <- prune_taxa(taxa, phy)
 
 # Pick the OTU count matrix
 # and convert it into samples x taxa format
@@ -82,9 +87,11 @@ colnames(count) <- get_species(tax,colnames(count))
 
 ```{r,message=F,warning=F}
 
-#fit <- lapply(1:10, dmn, count = count, verbose=TRUE)
+fit <- lapply(1:10, dmn, count = count, verbose=TRUE)
+
 
 #save(fit, file="DMM_fit.rda")
+
 
 load("DMM_fit.rda")
 
