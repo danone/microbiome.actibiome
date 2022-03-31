@@ -87,7 +87,7 @@ colnames(count) <- get_species(as.data.frame(tax),colnames(count))
 
 ```{r,message=F,warning=F}
 
-fit <- lapply(1:10, dmn, count = count, verbose=TRUE)
+fit <- lapply(c(1:10,15,20), dmn, count = count, verbose=TRUE)
 
 
 #save(fit, file="DMM_fit.rda")
