@@ -31,6 +31,8 @@ source(file = "functions.R")
 
 ```{r,message=F,warning=F}
 
+set.seed(123412)
+
 # we load this file to have taxa table specifically
 load(file = "study_after_QC.rda")
 
@@ -91,9 +93,9 @@ colnames(count) <- get_species(tax,colnames(count))
 
 ```{r,message=F,warning=F}
 
-range <- c(1:10, 20, 30)
+range <- c(20:30)
 
-fit <- lapply(range, dmn, count = count, verbose=TRUE)
+fit <- mclapply(range, dmn, count = count, verbose=TRUE, mc.cores = 12)
 
 save(fit, file="DMM_fit")
 
@@ -123,6 +125,14 @@ mixturewt(best)
 
 model <- apply(mixture(best), 1, which.max)
 
+## write the enterotype file
+
+enterotype <- data.frame(enterotype = model)
+
+write.csv(enterotype, file="enterotype_DMM", row.names=TRUE, col.names=TRUE, quote=FALSE)
+
+t <- fread("enterotype_DMM") %>%
+  column_to_rownames("V1")
 ```
 
 ## Laplace check
@@ -150,5 +160,15 @@ for (k in seq(ncol(fitted(best)))) {
 }
 
 ```
+
+
+## Laplace check
+
+```{r,message=F,warning=F}
+
+
+
+```
+
 
 
