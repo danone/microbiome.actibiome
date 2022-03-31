@@ -79,7 +79,7 @@ count <- count_raw %>%
 
 # transform colnames to species name
 
-colnames(count) <- get_species(tax,colnames(count))
+colnames(count) <- get_species(as.data.frame(tax),colnames(count))
 
 ```
 
