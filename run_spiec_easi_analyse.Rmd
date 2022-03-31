@@ -95,6 +95,7 @@ otu <- as.matrix(otu)
 ## au niveau du genre on veut voir l'interaction entre les bifids et les non bifids
 
 taxo <- tax %>%
+  as.data.frame() %>%
   mutate(Genus =
            case_when(Genus == 'Bifidobacterium' ~ "Bifidobacterium", 
                      TRUE ~ "Other Genus")) %>%
