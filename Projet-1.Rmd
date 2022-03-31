@@ -35,11 +35,11 @@ source("functions.R")
 
 ```{r,message=F,warning=F}
 
-#load("curated_v3_otu_tax.rda")
+load("curated_v3_otu_tax.rda")
 
-#otu <- data.frame(OTU)
+otu <- data.frame(OTU)
 
-#taxo <- data.frame(TAX)
+taxo <- data.frame(TAX)
 
 ```
 

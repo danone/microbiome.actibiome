@@ -77,6 +77,10 @@ count <- count_raw %>%
   filter_all(., any_vars(. != 0)) %>%
   as.matrix(.)
 
+# colsums equal zero (bacteria not present in any sample) need to be deleted
+
+
+
 # transform colnames to species name
 
 colnames(count) <- get_species(tax,colnames(count))
