@@ -45,6 +45,7 @@ phy <- subset_samples(phy, antibiotics_current_use == "no")
 
 phy <- subset_samples(phy, disease == "Control")
 
+pseq <- subset_taxa(phy, Genus %in% c("Bifidobacterium"))
 
 ```
 
@@ -54,12 +55,8 @@ phy <- subset_samples(phy, disease == "Control")
 
 ```{r,message=F,warning=F}
 
-phy.comp <- microbiome::transform(phy, "compositional")
+# phy.comp <- microbiome::transform(phy, "compositional")
 # compositional transformation, ie, relative abundance
-
-# only consider bifid species
-
-pseq <- subset_taxa(phy.comp, Genus %in% c("Bifidobacterium"))
 
 #taxa <- core_members(phy.comp, detection = 0.1/100, prevalence = 50/100)
 
@@ -74,12 +71,15 @@ count_raw <- as.matrix(t(dat))
 
 count <- count_raw %>%
   as.data.frame(.) %>%
-  filter_all(., any_vars(. != 0)) %>%
-  as.matrix(.)
+  filter_all(., any_vars(. != 0))
 
 # colsums equal zero (bacteria not present in any sample) need to be deleted
 
+otu_not_present <- names(which(colSums(count) == 0))
 
+count <- count %>%
+  select(-otu_not_present) %>%
+  as.matrix(.)
 
 # transform colnames to species name
 
@@ -91,7 +91,9 @@ colnames(count) <- get_species(tax,colnames(count))
 
 ```{r,message=F,warning=F}
 
-fit <- lapply(1:10, dmn, count = count, verbose=TRUE)
+range <- c(1:10, 20, 30)
+
+fit <- lapply(range, dmn, count = count, verbose=TRUE)
 
 save(fit, file="DMM_fit")
 
