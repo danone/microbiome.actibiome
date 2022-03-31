@@ -84,9 +84,9 @@ colnames(count) <- get_species(tax,colnames(count))
 
 #fit <- lapply(1:10, dmn, count = count, verbose=TRUE)
 
-#save(fit, file="DMM_fit")
+#save(fit, file="DMM_fit.rda")
 
-load("DMM_fit")
+load("DMM_fit.rda")
 
 ```
 
