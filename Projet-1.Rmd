@@ -246,13 +246,14 @@ plot('westernized','Patients Counts by Westernized', 'Westernized')
 
 # On s'intéresse au genre bifidobactérium d'abord donc on les sélectionne
 
-index <- which(tax$Genus =='Bifidobacterium')
+index <- which(tax[,"Genus"] =='Bifidobacterium')
 bifid_especes <- rownames(tax)[index]
 
 # Calcul des abondances bifid seulement
 
 somme_bifid <- otus %>%
-  filter(rownames(.) %in% bifid_especes) %>%
+  as.data.frame() %>%
+  dplyr::filter(rownames(.) %in% bifid_especes) %>%
   colSums(., na.rm=TRUE)
 
 # Calcul des abondances totales
