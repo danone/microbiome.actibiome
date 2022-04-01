@@ -22,6 +22,9 @@ library(magrittr)
 library(phyloseq)
 library(dplyr)
 library(tibble)
+library(ggplot2)
+
+library(gplots)
 
 source(file = "functions.R")
 
@@ -31,7 +34,11 @@ source(file = "functions.R")
 
 ```{r,message=F,warning=F}
 
-set.seed(123412)
+number = 12000
+
+set.seed(number)
+
+threshold = 500
 
 # we load this file to have taxa table specifically
 load(file = "study_after_QC.rda")
@@ -41,13 +48,14 @@ load(file = "phy_curated_data_after_QC.rda")
 
 phy <- subset_samples(phy, body_site == "stool")
 
-phy <- subset_samples(phy, age_category == "adult")
+#phy <- subset_samples(phy, age_category == "adult")
+
+#phy <- subset_samples(phy, disease == "Control")
 
 phy <- subset_samples(phy, antibiotics_current_use == "no")
 
-phy <- subset_samples(phy, disease == "Control")
-
 pseq <- subset_taxa(phy, Genus %in% c("Bifidobacterium"))
+
 
 ```
 
@@ -71,6 +79,10 @@ count_raw <- as.matrix(t(dat))
 
 # rowsums equal zero (sample with 0 count everywhere) need to be deleted
 
+sample_low_reads <- names(which(rowSums(count) <= 500))
+
+# colsums equal zero (bacteria not present in any sample) need to be deleted
+
 count <- count_raw %>%
   as.data.frame(.) %>%
   filter_all(., any_vars(. != 0))
@@ -81,6 +93,8 @@ otu_not_present <- names(which(colSums(count) == 0))
 
 count <- count %>%
   select(-otu_not_present) %>%
+  ## filtering ppl with nb reads < threshold
+  filter(!row.names(.) %in% sample_low_reads) %>%
   as.matrix(.)
 
 # transform colnames to species name
@@ -93,13 +107,13 @@ colnames(count) <- get_species(tax,colnames(count))
 
 ```{r,message=F,warning=F}
 
-range <- c(20:30)
+range <- c(1:30)
 
 fit <- mclapply(range, dmn, count = count, verbose=TRUE, mc.cores = 12)
 
-save(fit, file="DMM_fit")
+save(fit, file=paste0("DMM_fit_seed_",number))
 
-load("DMM_fit")
+load(paste0("DMM_fit_seed_",number))
 
 ```
 
@@ -109,11 +123,66 @@ load("DMM_fit")
 
 lplc <- base::sapply(fit, DirichletMultinomial::laplace)
 
+aic  <- base::sapply(fit, DirichletMultinomial::AIC)
+
+bic  <- base::sapply(fit, DirichletMultinomial::BIC)
+
+
 ## pick the optimal model
 
-best <- fit[[which.min(unlist(lplc))]]
+best <- fit[[which.min(unlist(bic))]]
 
 mixturewt(best)
+
+```
+
+## Laplace figure
+
+```{r,message=F,warning=F}
+
+laplace_plot <- data.frame(Fit = lplc, k = c(1:length(lplc)))
+aic_plot <- data.frame(Fit = aic, k = c(1:length(aic)))
+bic_plot <-data.frame(Fit = bic, k = c(1:length(bic)))
+
+## on bind les 3 par lignes
+
+binded <- bind_rows(list(laplace = laplace_plot, aic = aic_plot, bic = bic_plot), .id = "type_check")
+
+## the minimum for laplace check
+
+mins_laplace <- binded %>%
+  filter(type_check == 'laplace' ) %>%
+  filter(Fit == min(Fit)) %>%
+  select(Fit, k)
+
+mins_bic <- binded %>%
+  filter(type_check == 'bic' ) %>%
+  filter(Fit == min(Fit)) %>%
+  select(Fit, k)
+
+
+ggplot(binded) +
+  geom_line(aes(x=k, y=Fit, group=type_check, color =type_check)) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, max(binded$k) + 5, by = 5))  +
+  
+  ### we add laplace minimum
+  annotate("point", x=mins_laplace$k, y=mins_laplace$Fit, color='orange', size=4) +
+  geom_hline(yintercept = mins_laplace$Fit, linetype='dashed') +
+  annotate("label", x=max(laplace_plot$k) + 3, y=mins_laplace$Fit, color='black', label= c("laplace minimum"), size=4) +
+  annotate(geom = "text", x = mins_laplace$k, y = mins_laplace$Fit, label = paste0("k = ", mins_laplace$k), vjust = -0.5) +
+  
+    ### we add bic minimum
+  annotate("point", x=mins_bic$k, y=mins_bic$Fit, color='orange', size=4) +
+  geom_hline(yintercept = mins_bic$Fit, linetype='dashed') +
+  annotate("label", x=max(laplace_plot$k) + 3, y=mins_bic$Fit, color='black', label= c("bic minimum"), size=4) +
+  annotate(geom = "text", x = mins_bic$k, y = mins_bic$Fit, label = paste0("k = ", mins_bic$k), vjust = -0.5) +
+  
+  coord_cartesian(xlim =c(min(binded$k),max(binded$k) + 6))  +
+  
+  labs(x = "Number of Dirichlet Component - K", y = "Model Fit", title = paste0("seed = ", number), color = "")
+
+#max(laplace_plot$k) + 10
 
 ```
 
@@ -150,23 +219,154 @@ for (k in seq(ncol(fitted(best)))) {
      filter(abs(value) > quantile(abs(value), 0.8))     
 
   p <- ggplot(d, aes(x = OTU, y = value, fill = OTU)) +
-    geom_bar(stat = "identity") +
-    coord_flip() +
-    coord_flip() +
-    guides(fill = guide_legend(reverse=T)) +
-    labs(title = paste("Top drivers: community type", k))
-  
+    theme_minimal() +
+       geom_bar(stat = "identity") +
+       coord_flip() +
+       labs(title = paste("Top drivers: community type", k))
   print(p)
 }
 
 ```
 
+## Heatmaps
 
-## Laplace check
+```{r,message=F,warning=F,fig.width=15, fig.height=8}
+
+matrix_int <- fitted(best) %>%
+  log10(.) %>%
+  round(.,2)
+
+matrix_int <- round(matrix_int,2)
+
+## replace col and rownames
+
+colnames(matrix_int) <- paste("cluster ",1:ncol(matrix_int))
+
+rownames(matrix_int) <- gsub("Bifidobacterium","",rownames(matrix_int))
+
+
+my_palette <- colorRampPalette(c("red", "yellow", "green"))(n = 299)
+
+col_breaks = c(seq(0.81,1,length=100), # for red
+seq(0,0.8,length=100),  # for yellow
+seq(-1,0,length=100)) # for green
+
+#png(filename = "heatmap_dmm.png", width = 1000, height = 1000, units = "px")
+
+heatmap.2(matrix_int,
+  cellnote = matrix_int,  # same data set for cell labels
+  main = "", # heat map title
+  notecol="black",      # change font color of cell labels to black
+  density.info="none",  # turns off density plot inside color legend
+  trace="none",         # turns off trace lines inside the heat map
+  margins = c(12,9),     # widens margins around plot
+  col=my_palette,       # use on color palette defined earlier
+  dendrogram="none",     # only draw a row dendrogram
+  Colv="NA",
+  key.title = "",
+  key.xlab = expression(paste("log"[10],"(Value)")))           # turn off column clustering
+
+
+#dev.off()
+
+```
+
+## Tableaux de contingence
 
 ```{r,message=F,warning=F}
 
+enterotype <- t %>%
+  rownames_to_column("sample_id")
 
+## on va merge avec map
+
+map <- phy@sam_data %>%
+  data.frame(.) %>%
+  rownames_to_column("sample_id") %>%
+  merge(., enterotype, by="sample_id") %>%
+  select(enterotype,westernized,age_category,disease) %>%
+  group_by(enterotype,westernized) %>%
+  summarise(rows = n()) %>%
+    group_by(enterotype) %>%
+  mutate(percent = rows/sum(rows)) %>%
+  filter(westernized == 'yes')
+
+map$enterotype <- as.character(map$enterotype)
+
+
+ggplot(map, aes(x = enterotype, y = percent, fill = westernized)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(round(percent*100,1),"%")), position = position_fill(vjust = 0.5), size =3) +
+  theme_classic() +
+  labs(x = "Cluster K", y = "amount")
+
+```
+
+## Description des clusters
+
+```{r,message=F,warning=F}
+
+distribution <- function(category){
+  
+
+  map <- phy@sam_data %>%
+    data.frame(.) %>%
+    rownames_to_column("sample_id") %>%
+    merge(., enterotype, by="sample_id") %>%
+    select(enterotype,westernized,age_category,disease) %>%
+    group_by_at(enterotype,westernized) %>%
+    summarise(rows = n()) %>%
+    group_by(enterotype) %>%
+    mutate(percent = rows/sum(rows)) %>%
+    filter(westernized == 'yes')
+
+  map$enterotype <- as.character(map$enterotype)
+
+
+  ggplot(map, aes(x = enterotype, y = percent, fill = westernized)) +
+    geom_bar(stat = "identity") +
+    geom_text(aes(label = paste0(round(percent*100,1),"%")), position = position_fill(vjust = 0.5)) +
+    theme_classic() +
+    labs(x = "Cluster K", y = "amount")
+
+}
+
+```
+
+## Conseils
+
+```{r,message=F,warning=F}
+
+## heatmap avec les 15 clusters en x et en y : bifids, valeur 
+
+## prévalence des metadata () : table de contingence entre les clysters et maladies western/non western : voir si des clusters sont plus enrichis en individus sains, adultes etc etc
+
+## alpha diversité : package vegan : fonction pour calculer l'alpha diversité, diversité Shannon, sans filre sur les abondances, et après croiser avec la table des bifids (lequel est le plus riche en alpha diversité)
+## récupérer ceux qui ont des sample 0, et les mettre dans un cluster à part (cluster 16 no bifids), et pareil les confronter avc les metadata
+
+# dans le réseau, extraire le poids des liens, positifs ou négatifs
+
+#sebeta <- symBeta(getOptBeta(MSP_spiec_easi), mode='maxabs')
+
+## récuprer les beta les poids du réseau à partir de l'objet MSP_spiec_easi
+
+# tableau adjacent
+
+# https://mibwurrepo.github.io/Microbial-bioinformatics-introductory-course-Material-2018/inference-of-microbial-ecological-networks.html
+
+
+
+
+### faire un tableau du nombre de k meilleur en fonction des seeds
+
+
+
+
+# 1 faire le script pour lancer la nuit
+
+# tableau de contingence age, diversité, avec Shannon, westernized/non westernized, croiser avec les enterotypes (qui a été fait sur tous les genre grâce à DMM)
+
+# figure de Muriel
 
 ```
 

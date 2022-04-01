@@ -22,6 +22,7 @@ library(ggsignif)
 library(microbiome)
 library(dplyr)
 library(ggforce)
+library(rlang)
 
 source("functions.R")
 
@@ -59,107 +60,6 @@ taxo <- as.matrix(tax)
 ```
 
 
-## Objet Phyloseq
-
-```{r,message=F,warning=F}
-
-otu <- otu_table(otu, taxa_are_rows = TRUE)
-mapp <- sample_data(mapp)
-taxo <- tax_table(taxo)
-
-phy <- phyloseq(otu, mapp, taxo)
-
-# on calcule les abondances relatives
-
-phy_norm <- transform_sample_counts(phy, function(x) x / sum(x))
-
-# on sélectionne que les adultes
-
-phy <- subset_samples(phy_norm, age_category == "adult")
-
-## la fonction de référence pour regrouper les sample est la somme, on doit dc normaliser les lignes pour chaque groupe
-
-phy <- merge_samples_mean(phy, 'disease')
-
-```
-
-
-## Objet Phyloseq
-
-```{r,message=F,warning=F}
-
-## on a un tableau avec les abondances relatives moyennes en fonction des catégories
-
-table_pourc <- data.frame(phy@otu_table)
-
-## on veut savoir quelles espèces sont bifid ou non
-
-especes <- tax %>%
-  mutate(bifid =
-           case_when(Genus == 'Bifidobacterium' ~ "oui", 
-                     TRUE ~ "non")) %>%
-  select(Species, bifid) %>%
-  rownames_to_column(.,"id")
-
-### on selectionne dans le tableau et on merge
-
-#tabl_rangee <- table_pourc %>%
-#  rownames_to_column(.,"id") %>%
-#  merge(., especes, by="id", all=TRUE) %>%
-#  arrange(desc(Control)) %>% 
-#  group_by(bifid) %>%
-#  slice(1:5) %>%
-#  as.data.frame(.) %>%
-#  gather(., disease, abundance, Control:BD) %>%
-#  select(!id) %>%
-#  group_by(bifid) %>%
-#  data.frame()
-
-
-tabl_rangee <- table_pourc %>%
-  rownames_to_column(.,"id") %>%
-  merge(., especes, by="id", all=TRUE) %>%
-  arrange(desc(Control)) %>% 
-  group_by(bifid) %>%
-  slice(1:5) %>%
-  as.data.frame(.) %>%
-  gather(., disease, abundance, Control:BD) %>%
-  select(!id) %>%
-  group_by(bifid) %>%
-  data.frame()
-
-
-```
-
-
-## Plot
-
-```{r,message=F,warning=F,fig.height=15, fig.width=15}
-
-
-
-  
-p <- ggplot(tabl_rangee, aes(x = Species, y = disease, color=disease))+
-  geom_point(aes(size=abundance)) +
-  guides(size="none")  +
-  labs( x= "", y = "", size = "", fill ="", color="") +
-  scale_x_discrete(limits = tabl_rangee$Species[1:10]) +
-  scale_y_discrete(limits = rev(levels(map$disease))) +
-  theme_classic() +
-  theme(axis.text.x = element_text(angle = 40, hjust = 1),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank()) +
-  geom_text(aes(label = paste0(round(tabl_rangee$abundance*100,2),"%")), vjust=-1.5)
-
-p
-
-
-#ggsave("mean_bacteria_all_disease.png")
-
-```
-
-
-
 ## Prévalence
 
 ```{r,message=F,warning=F,fig.height=25, fig.width=25}
@@ -172,9 +72,11 @@ phy <- phyloseq(otu, mapp, taxo)
 
 # on sélectionne que les adultes
 
-phy <- subset_samples(phy_norm, age_category == "adult")
+phy <- subset_samples(phy, body_site == "stool")
 
-phy = subset_samples(phy, !is.na(disease))
+phy_initial <- subset_samples(phy, antibiotics_current_use == "no")
+
+
 
 ## la fonction de référence pour regrouper les sample est la somme, on doit dc normaliser les lignes pour chaque groupe
 
@@ -206,8 +108,7 @@ especes <- taxon %>%
 
 
 map <- map_s %>%
-  rownames_to_column(.,"sample_id") %>%
-  select(disease, sample_id)
+  rownames_to_column(.,"sample_id")
   
 
 tax <- taxon %>%
@@ -276,3 +177,89 @@ p
 #ggsave("mean_bacteria_all_disease.png")
 
 ```
+
+
+## Plot
+
+```{r,message=F,warning=F,fig.height=8, fig.width=10}
+
+
+
+plot_rond <- function(category, facteur_control){
+
+  target_column = rlang::sym(facteur_control)
+
+  prevalence_group_mean <- pre %>%
+    rownames_to_column(.,"sample_id") %>%
+    merge(.,map, by="sample_id") %>%
+    select(-sample_id) %>%
+    group_by_at(category) %>%
+    summarise_all(., funs(mean(.>0))) %>%
+    column_to_rownames(var = category) %>%
+    t(.) %>%
+    data.frame()
+  
+  rownames(prevalence_group_mean) <- gsub("\\.", "\\|", rownames(prevalence_group_mean))
+
+  
+  prevalence_group_mean <- prevalence_group_mean %>%
+    rownames_to_column(.,"tax") %>%
+    merge(., especes, by="tax") %>%
+    column_to_rownames(.,var='tax')
+
+  tabl_rangee <- prevalence_group_mean %>%
+    arrange(desc(!!rlang::sym(target_column))) %>%
+    group_by(bifid) %>%
+    slice(1:5) %>%
+    as.data.frame(.) %>%
+    gather(., !!rlang::sym(category), abundance, -c(Species, bifid)) %>%
+    group_by(bifid) %>%
+    data.frame()
+
+
+
+
+  p <- ggplot(tabl_rangee, aes_string(x = "Species", y = category, color=category))+
+    geom_point(aes(size=abundance)) +
+    guides(size="none")  +
+    labs( x= "", y = "", size = "", fill ="", color=category) +
+    scale_x_discrete(limits = tabl_rangee$Species[1:10]) +
+
+    scale_y_discrete(limits = rev(levels(map[[category]]))) +
+    theme_classic() +
+    theme(axis.text.x = element_text(angle = 40, hjust = 1),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank()) +
+    geom_text(aes(label = paste0(round(tabl_rangee$abundance*100,2),"%")), vjust=-1.5)
+
+  p
+
+}
+
+## filtering data depends on studied factor
+
+## filtering
+phy <- subset_samples(phy_initial, age_category == "adult")
+## initialize pre
+pre <- data.frame(t(phy@otu_table))
+
+plot_rond("disease", 'Control')
+
+## filtering
+phy <- subset_samples(phy_initial, age_category == "adult")
+phy <- subset_samples(phy, disease == "Control")
+## initialize pre
+pre <- data.frame(t(phy@otu_table))
+
+plot_rond("westernized", 'yes')
+
+## filtering
+phy <- subset_samples(phy_initial, disease == "Control")
+## initialize pre
+pre <- data.frame(t(phy@otu_table))
+
+plot_rond("age_category", 'adult')
+
+```
+
+
