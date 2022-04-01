@@ -87,13 +87,10 @@ colnames(count) <- get_species(as.data.frame(tax),colnames(count))
 
 ```{r,message=F,warning=F}
 
-fit <- lapply(c(1:10,15,20), dmn, count = count, verbose=TRUE)
-
-
-#save(fit, file="DMM_fit.rda")
-
-
-load("DMM_fit.rda")
+if(!("DMM_fit.rda" %in% list.files())) {
+  fit <- lapply(c(1:10,15,20), dmn, count = count, verbose=TRUE);
+  save(fit, file="DMM_fit.rda")
+} else {load("DMM_fit.rda")}
 
 ```
 
