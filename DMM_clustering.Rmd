@@ -22,7 +22,12 @@ library(magrittr)
 library(phyloseq)
 library(dplyr)
 library(tibble)
+library(rstatix)
+library(ggpubr)
 library(ggplot2)
+library(tidyverse)
+library("readxl")
+library("optparse")
 
 library(gplots)
 
@@ -34,9 +39,9 @@ source(file = "functions.R")
 
 ```{r,message=F,warning=F}
 
-number = 12000
+seed = 12000
 
-set.seed(number)
+set.seed(seed)
 
 threshold = 500
 
@@ -47,6 +52,10 @@ load(file = "study_after_QC.rda")
 load(file = "phy_curated_data_after_QC.rda")
 
 phy <- subset_samples(phy, body_site == "stool")
+
+## diversity vegan
+
+phy_diversity <- estimate_richness(phy, split = TRUE, measures = "Shannon")
 
 #phy <- subset_samples(phy, age_category == "adult")
 
@@ -103,6 +112,54 @@ colnames(count) <- get_species(as.data.frame(tax),colnames(count))
 
 ```
 
+
+## Code à faire marcher la nuit
+
+```{r,message=F,warning=F}
+
+fit_genus_list = vector("list",5)
+
+
+set.seed(seed)
+seeds=sample(1:1000, 5)
+
+name <- paste0("DMM_fit_list",number)
+
+if(!(name %in% list.files())) {
+
+  for(i in 1:5) {
+
+    set.seed(seeds[i])
+
+    fit_genus <- mclapply(1:30, dmn, count=genus, verbose=FALSE, mc.cores=12)
+
+    fit_genus_list[[i]] = fit_genus
+    
+    print(i)
+    
+    save(fit, file=name)
+
+    }
+
+} else {load(name)}
+
+# collect scores to find the best fit
+lplc = vector("list",5)
+bic <- vector("list",5)
+aic <- vector("list",5)
+
+for(i in 1:5) {
+  
+  lplc[[i]] <- base::sapply(fit_genus_list[[i]], DirichletMultinomial::laplace)
+
+  aic[[i]]  <- base::sapply(fit_genus_list[[i]], DirichletMultinomial::AIC)
+
+  bic[[i]]  <- base::sapply(fit_genus_list[[i]], DirichletMultinomial::BIC)
+
+}
+
+```
+
 ## Model fit
 
 ```{r,message=F,warning=F}
@@ -110,17 +167,13 @@ colnames(count) <- get_species(as.data.frame(tax),colnames(count))
 
 range <- c(1:30)
 
-fit <- mclapply(range, dmn, count = count, verbose=TRUE, mc.cores = 12)
+name <- paste0("DMM_fit_list",number)
 
-save(fit, file=paste0("DMM_fit_seed_",number))
+if(!(name %in% list.files())) {
+  fit <- lapply(c(1:10,15,20), dmn, count = count, verbose=TRUE, mc.cores=12);
+  save(fit, file=name)
+  } else {load(name)}
 
-load(paste0("DMM_fit_seed_",number))
-# =======
-# if(!("DMM_fit.rda" %in% list.files())) {
-#   fit <- lapply(c(1:10,15,20), dmn, count = count, verbose=TRUE);
-#   save(fit, file="DMM_fit.rda")
-# } else {load("DMM_fit.rda")}
-# >>>>>>> d23d0998d606f3ef9435839c4370b19bb1c3394d
 
 
 
@@ -208,35 +261,17 @@ model <- apply(mixture(best), 1, which.max)
 
 enterotype <- data.frame(enterotype = model)
 
+enterotype <- enterotype %>%
+  rownames_to_column("sample_id")
+
 write.csv(enterotype, file="enterotype_DMM", row.names=TRUE, col.names=TRUE, quote=FALSE)
 
 t <- fread("enterotype_DMM") %>%
   column_to_rownames("V1")
-```
 
-## Laplace check
-
-```{r,message=F,warning=F}
-
-for (k in seq(ncol(fitted(best)))) {
-  d <- melt(fitted(best))
-  colnames(d) <- c("OTU", "cluster", "value")
-  d <- subset(d, cluster == k) %>%
-     # Arrange OTUs by assignment strength
-     arrange(value) %>%
-     mutate(OTU = factor(OTU, levels = unique(OTU))) %>%
-     # Only show the most important drivers
-     filter(abs(value) > quantile(abs(value), 0.8))     
-
-  p <- ggplot(d, aes(x = OTU, y = value, fill = OTU)) +
-    theme_minimal() +
-       geom_bar(stat = "identity") +
-       coord_flip() +
-       labs(title = paste("Top drivers: community type", k))
-  print(p)
-}
 
 ```
+
 
 ## Heatmaps
 
@@ -252,7 +287,7 @@ matrix_int <- round(matrix_int,2)
 
 colnames(matrix_int) <- paste("cluster ",1:ncol(matrix_int))
 
-rownames(matrix_int) <- gsub("Bifidobacterium","",rownames(matrix_int))
+rownames(matrix_int) <- gsub("Bifidobacterium","B. ",rownames(matrix_int))
 
 
 my_palette <- colorRampPalette(c("red", "yellow", "green"))(n = 299)
@@ -281,34 +316,25 @@ heatmap.2(matrix_int,
 
 ```
 
-## Tableaux de contingence
+## Boxplot Shannon
 
 ```{r,message=F,warning=F}
 
-enterotype <- t %>%
-  rownames_to_column("sample_id")
-
-## on va merge avec map
-
-map <- phy@sam_data %>%
-  data.frame(.) %>%
+diversity <- phy_diversity %>%
   rownames_to_column("sample_id") %>%
   merge(., enterotype, by="sample_id") %>%
-  select(enterotype,westernized,age_category,disease) %>%
-  group_by(enterotype,westernized) %>%
-  summarise(rows = n()) %>%
-    group_by(enterotype) %>%
-  mutate(percent = rows/sum(rows)) %>%
-  filter(westernized == 'yes')
+  select(-sample_id)
 
-map$enterotype <- as.character(map$enterotype)
+diversity$enterotype <- as.character(diversity$enterotype)
 
-
-ggplot(map, aes(x = enterotype, y = percent, fill = westernized)) +
-  geom_bar(stat = "identity") +
-  geom_text(aes(label = paste0(round(percent*100,1),"%")), position = position_fill(vjust = 0.5), size =3) +
-  theme_classic() +
-  labs(x = "Cluster K", y = "amount")
+p <- ggplot(diversity, aes(x = enterotype,
+                       y = Shannon)) +
+  geom_boxplot(outlier.shape = NA) +
+  theme_minimal() +
+  stat_compare_means(label.y = 4.3, label.x ="3") +
+  labs(fill= "enterotype")
+  
+p
 
 ```
 
@@ -316,30 +342,59 @@ ggplot(map, aes(x = enterotype, y = percent, fill = westernized)) +
 
 ```{r,message=F,warning=F}
 
-distribution <- function(category){
+distribution <- function(category, type){
   
 
   map <- phy@sam_data %>%
     data.frame(.) %>%
     rownames_to_column("sample_id") %>%
     merge(., enterotype, by="sample_id") %>%
-    select(enterotype,westernized,age_category,disease) %>%
-    group_by_at(enterotype,westernized) %>%
-    summarise(rows = n()) %>%
-    group_by(enterotype) %>%
+    select(enterotype,all_of(category)) %>%
+    group_by_all(.) %>%
+    summarise(rows = n(), .groups = 'drop') %>%
+    group_by_at('enterotype') %>%
     mutate(percent = rows/sum(rows)) %>%
-    filter(westernized == 'yes')
-
-  map$enterotype <- as.character(map$enterotype)
-
-
-  ggplot(map, aes(x = enterotype, y = percent, fill = westernized)) +
-    geom_bar(stat = "identity") +
-    geom_text(aes(label = paste0(round(percent*100,1),"%")), position = position_fill(vjust = 0.5)) +
+    rename('category' = category)
+  
+ # map$percent <- round(map$percent*100,1)
+  
+  p <- ggplot(map, aes(x = enterotype,y=percent, fill = category)) +
+    geom_bar(stat="identity") +
+    geom_text(aes(label = paste0(round(percent*100,1),"%")),position = position_fill(vjust = 0.5), size =2.5) +
+    #geom_text(aes(label = paste0(round(percent*100,1),"%"), vjust = 1), position = position_fill(vjust = 0.5), size =3) +
     theme_classic() +
-    labs(x = "Cluster K", y = "amount")
+    scale_fill_brewer(type = type) +
+    labs(x = "Cluster K", y = "percent", fill = category)
+  
+  p
 
 }
+
+distribution('westernized', 'qual')
+
+distribution('age_category', type = NULL)
+
+distribution('disease', "qual")
+
+```
+
+## test health_healthy
+
+```{r,message=F,warning=F}
+
+## we select the "control", which are "healthy" in the database :
+
+healthy <- map %>%
+  select(sample_id, disease) %>%
+  filter(disease == 'Control')
+
+print(paste0('le nombre de healthy dans curation est : ',nrow(healthy)))
+
+healthy_healthy <- read_excel('metadata_healthy_healthy.xlsx') %>%
+  rename('sample_id' = Sample_ID) %>%
+  merge(., healthy, by='sample_id')
+  
+print(paste0('le nombre de healthy-healthy dans curation est : ',nrow(my_data)))
 
 ```
 
@@ -347,12 +402,6 @@ distribution <- function(category){
 
 ```{r,message=F,warning=F}
 
-## heatmap avec les 15 clusters en x et en y : bifids, valeur 
-
-## prévalence des metadata () : table de contingence entre les clysters et maladies western/non western : voir si des clusters sont plus enrichis en individus sains, adultes etc etc
-
-## alpha diversité : package vegan : fonction pour calculer l'alpha diversité, diversité Shannon, sans filre sur les abondances, et après croiser avec la table des bifids (lequel est le plus riche en alpha diversité)
-## récupérer ceux qui ont des sample 0, et les mettre dans un cluster à part (cluster 16 no bifids), et pareil les confronter avc les metadata
 
 # dans le réseau, extraire le poids des liens, positifs ou négatifs
 
@@ -374,7 +423,6 @@ distribution <- function(category){
 
 # 1 faire le script pour lancer la nuit
 
-# tableau de contingence age, diversité, avec Shannon, westernized/non westernized, croiser avec les enterotypes (qui a été fait sur tous les genre grâce à DMM)
 
 # figure de Muriel
 
