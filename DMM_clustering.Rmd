@@ -99,13 +99,14 @@ count <- count %>%
 
 # transform colnames to species name
 
-colnames(count) <- get_species(tax,colnames(count))
+colnames(count) <- get_species(as.data.frame(tax),colnames(count))
 
 ```
 
 ## Model fit
 
 ```{r,message=F,warning=F}
+
 
 range <- c(1:30)
 
@@ -114,6 +115,15 @@ fit <- mclapply(range, dmn, count = count, verbose=TRUE, mc.cores = 12)
 save(fit, file=paste0("DMM_fit_seed_",number))
 
 load(paste0("DMM_fit_seed_",number))
+# =======
+# if(!("DMM_fit.rda" %in% list.files())) {
+#   fit <- lapply(c(1:10,15,20), dmn, count = count, verbose=TRUE);
+#   save(fit, file="DMM_fit.rda")
+# } else {load("DMM_fit.rda")}
+# >>>>>>> d23d0998d606f3ef9435839c4370b19bb1c3394d
+
+
+
 
 ```
 
