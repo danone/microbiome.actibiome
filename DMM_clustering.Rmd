@@ -258,6 +258,9 @@ index <- which(as.data.frame(model_k) == 6)
 
 ## the model 1 is the bets fit model
 
+## le fit correspond à l'indice 1
+
+fit <- fit_genus_list[[index]]
 
 best <- fit[[which.min(unlist(bic[[index]]))]]
 
@@ -444,6 +447,46 @@ distribution('westernized', 'qual')
 distribution('age_category', type = NULL)
 
 distribution('disease', "qual")
+
+```
+## table de contingence enterotypes * bifidotypes
+
+```{r,message=F,warning=F}
+
+## library for chi squared test ##
+
+library("gplots")
+
+## enterotypes are specific to bifid, so we'll call it bifidotype, comparing it to enterotypes
+
+bifidotype <- enterotype
+
+enterotype_whole_microbiota <- fread('enterotypes_curated_v3_prediction.csv') %>%
+  select(sample_name, Enterotypes_id) %>%
+  rename(., "sample_id" = sample_name)
+
+contingeny_table <- bifidotype %>%
+  merge(., enterotype_whole_microbiota, by="sample_id") %>%
+  select(- sample_id)
+
+names(contingeny_table) <- c('bifidotypes','enterotypes')
+
+contingeny_table <- contingeny_table %>%
+  table(.)
+
+## représentation graphique 
+
+test_chisq <- chisq.test(contingeny_table)
+
+test_chisq
+
+```
+## enterotypes * bifidotypes plot with pearson residuals
+
+```{r,message=F,warning=F}
+library(corrplot)
+
+corrplot(test_chisq$residuals, is.cor = FALSE)
 
 ```
 
