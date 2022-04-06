@@ -139,9 +139,9 @@ phy <- subset_samples(phy, age_category == "adult")
 ## we will take the first 100 non bifid otus, most abundant in this cohort
 ## and all 32 bifid otus to calculate the matrix of covarience
 
-#otu_filtered <- data.frame(phy@otu_table)
+otu_filtered <- data.frame(phy@otu_table)
   
-#tax_filtered <- data.frame(phy@tax_table)
+tax_filtered <- data.frame(phy@tax_table)
 
 
 ```
@@ -165,7 +165,7 @@ phy <- prune_samples(sample_sums(phy)>=1000, phy) # select sample with at least 
 
 ```
 
-## Selection des 10 taxa les plus abondants
+## rarefaction
 
 ```{r,message=F,warning=F}
 
@@ -205,6 +205,104 @@ net.c.w <- spiec.easi(phy,
 ## process
 
 ```{r,message=F,warning=F,fig.height=9, fig.width=12}
+
+## we get the weight of each association
+
+sebeta <- symBeta(getOptBeta(net.c.w), mode='maxabs')
+
+## affect the colnames and rownames
+
+colnames(sebeta) <- rownames(sebeta) <- rownames(otu.c.w)
+
+# vsize <- log2(apply(otu.c, 2, mean)) # add log abundance as properties of vertex/nodes.
+
+```
+
+## prepare data for plotting
+
+```{r,message=F,warning=F,fig.height=9, fig.width=12}
+
+graph <- graph.adjacency(sebeta, mode='undirected', add.rownames = TRUE, weighted = TRUE)
+graph # we can see all the attributes and weights
+
+
+```
+## set the plot parameters
+
+```{r,message=F,warning=F,fig.height=9, fig.width=12}
+
+## set a different colar for negative/positive weights
+
+E(graph)[weight > 0]$color<-"orange" #now color the edges based on their values positive is steelblue
+E(graph)[weight < 0]$color<-"steelblue"  #now color the edges based on their values
+
+
+###########################
+
+pal <- brewer.pal(2,"Accent")
+
+name_species <- get_species(tax, V(graph)$name)
+Group <- factor(get_bifid(tax, V(graph)$name))
+
+vertex.col <- pal[Group]
+
+V(graph)$name <- name_species
+
+## on ne va afficher le nom que des bifids et
+
+lien <- get.edgelist(graph)
+
+## je vais afficher adolescentis seulement et les b liées à adolescentis (espèce commensale)
+
+select_bact <- lien %>%
+  data.frame(.) %>%
+  filter(grepl('adolescentis|animalis|longum|breve|bifidum', X1))
+
+bact_a_afficher <- unique(c(unique(as.character(select_bact$X1)), unique(as.character(select_bact$X2))))
+
+### j'affiche que ces nom dans le network d'interaction
+
+test <- V(graph)$name %>%
+  as.data.frame()
+
+test$. <- as.character(test$.)
+names(test) <- "V1"
+
+test <- test %>%
+  mutate(r = case_when(V1 %in% bact_a_afficher ~ V1
+                        ))
+
+V(graph)$name <- as.character(test$r)
+
+
+
+```
+
+## plotting
+
+```{r,message=F,warning=F,fig.height=9, fig.width=12}
+
+set.seed(1244)
+
+plot(graph,
+     layout=layout.fruchterman.reingold(graph),
+     vertex.color=vertex.col , vertex.cex = 0,
+     edge.arrow.size=0.01, vertex.size = 4,vertex.label.color= "black", displaylabels = TRUE, boxed.labels =FALSE, vertex.label.dist=0.5)
+
+legend("topleft",
+       legend=levels(Group),
+       fill=pal, border=NA, col="black")
+legend("topleft",
+       legend=levels(Group),
+       border=NA, col="black")
+
+```
+
+
+## process
+
+```{r,message=F,warning=F,fig.height=9, fig.width=12}
+
 
 graph=adj2igraph(getRefit(net.c.w),
                                vertex.attr=list(name=taxa_names(phy)),
