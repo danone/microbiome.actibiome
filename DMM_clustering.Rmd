@@ -211,26 +211,7 @@ mean_rank <- test_unfactored %>%
   gather(., key="k", value="mean_rank", '1':'30')
 
 ```
-## Plot des rangs moyens
 
-```{r,message=F,warning=F}
-
-dds <- phyloseq_to_deseq2(genera_temp, ~ 1)
-dds_res2 <- DESeq(dds, test="Wald")
-co = matrix(as.character(combn(levels(data.frame(sample_data(genera_temp))[,"DP5_FoodGroups"]),2)),nrow=2) # Generate pairs of groups
-output_FDR <- matrix(0,ncol=ncol(co),nrow=length(signif_genera))
-rownames(output_FDR) <- signif_genera
-colnames(output_FDR) <- apply(co,MARGIN=2,paste,collapse="-")
-output_LogFC <- output_FDR
-for(elem in 1:ncol(co)){ # Loop on comparisons
-  # Perform contrast
-  res_onecomp <- results(dds_res2, contrast=c("DP5_FoodGroups",glue("{co[1,elem]}"),glue("{co[2,elem]}")) , alpha=0.05)
-  # Extract unadjusted pvalue of genera with significant global effect, and adjust it with BH
-  output_FDR[,elem] <- p.adjust(res_onecomp[signif_genera,"pvalue"],method="BH")
-  output_LogFC[,elem] <- res_onecomp[signif_genera,"log2FoldChange"]
-}
-
-```
 
 ## Plot des rangs moyens
 
@@ -507,36 +488,6 @@ healthy_healthy <- read_excel('metadata_healthy_healthy.xlsx') %>%
   merge(., healthy, by='sample_id')
   
 print(paste0('le nombre de healthy-healthy dans curation est : ',nrow(my_data)))
-
-```
-
-## Conseils
-
-```{r,message=F,warning=F}
-
-
-# dans le réseau, extraire le poids des liens, positifs ou négatifs
-
-#sebeta <- symBeta(getOptBeta(MSP_spiec_easi), mode='maxabs')
-
-## récuprer les beta les poids du réseau à partir de l'objet MSP_spiec_easi
-
-# tableau adjacent
-
-# https://mibwurrepo.github.io/Microbial-bioinformatics-introductory-course-Material-2018/inference-of-microbial-ecological-networks.html
-
-
-
-
-### faire un tableau du nombre de k meilleur en fonction des seeds
-
-
-
-
-# 1 faire le script pour lancer la nuit
-
-
-# figure de Muriel
 
 ```
 
