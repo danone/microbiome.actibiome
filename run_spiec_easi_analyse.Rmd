@@ -26,6 +26,7 @@ library(igraph)
 library(fantaxtic)
 library(metagMisc)
 library(tibble)
+library(varhandle)
 
 source(file = "functions.R")
 
@@ -116,7 +117,7 @@ mapp <- sample_data(mapp)
 
 phy <- phyloseq(otu, mapp, taxo)
 
-save(phy, file="phy_curated_data_after_QC.rda")
+#save(phy, file="phy_curated_data_after_QC.rda")
 
 ```
 
@@ -154,13 +155,25 @@ tax_filtered <- data.frame(phy@tax_table)
 
 names_otu_interet <- subset_bifid_non_bifid(100, 32, otu_filtered, tax_filtered) ## 100 most abundant non bifid taxa, and 32 all bifid
 
-# en 2 : les 132 les plus prévalents
+# en 2 : les 150 les plus prévalents
 
-taxa_cent <- select_n_otu(150, otu_filtered)
+#names_otu_interet <- select_n_otu(150, otu_filtered)
 
-phy <- prune_taxa(taxa_names(phy) %in% taxa_cent, phy)
+phy <- prune_taxa(taxa_names(phy) %in% names_otu_interet, phy)
 
 phy <- prune_samples(sample_sums(phy)>=1000, phy) # select sample with at least 1000 reads assigned to bifidobacterium
+
+## save the phy object for differential analysis
+
+name = "phy_deseq_analysis_bis"
+
+if(!(name %in% list.files())) {
+  
+  save(phy, file = name)
+  
+} else {
+  load(name)
+  }
 
 
 ```
@@ -180,7 +193,7 @@ tax.c <- as.data.frame(tax_table(phy)@.Data)
 
 
 # rarefaction to 1000 reads
-otu.c.w <- vegan::rrarefy(otu.c.w, 1000)
+otu.c.w <- vegan::rrarefy(t(otu.c.w), 1000)
 
 ```
 
@@ -212,7 +225,7 @@ sebeta <- symBeta(getOptBeta(net.c.w), mode='maxabs')
 
 ## affect the colnames and rownames
 
-colnames(sebeta) <- rownames(sebeta) <- rownames(otu.c.w)
+colnames(sebeta) <- rownames(sebeta) <- rownames(t(otu.c.w))
 
 # vsize <- log2(apply(otu.c, 2, mean)) # add log abundance as properties of vertex/nodes.
 
@@ -239,152 +252,94 @@ E(graph)[weight < 0]$color<-"steelblue"  #now color the edges based on their val
 
 ###########################
 
-pal <- brewer.pal(2,"Accent")
-
 name_species <- get_species(tax, V(graph)$name)
-Group <- factor(get_bifid(tax, V(graph)$name))
-
-vertex.col <- pal[Group]
-
 V(graph)$name <- name_species
 
-## on ne va afficher le nom que des bifids et
+
+## on ne va afficher le nom que des bifids
+
 
 lien <- get.edgelist(graph)
+
 
 ## je vais afficher adolescentis seulement et les b liées à adolescentis (espèce commensale)
 
 select_bact <- lien %>%
   data.frame(.) %>%
-  filter(grepl('adolescentis|animalis|longum|breve|bifidum', X1))
+  filter(grepl('Bifidobacterium', X1))
 
 bact_a_afficher <- unique(c(unique(as.character(select_bact$X1)), unique(as.character(select_bact$X2))))
 
 ### j'affiche que ces nom dans le network d'interaction
 
 test <- V(graph)$name %>%
-  as.data.frame()
+  as.data.frame(.)
 
-test$. <- as.character(test$.)
 names(test) <- "V1"
 
+library(Hmisc)
+
 test <- test %>%
-  mutate(r = case_when(V1 %in% bact_a_afficher ~ V1
+  unfactor(.) %>%
+  mutate(bifid = case_when(V1 %in% bact_a_afficher ~ V1
+                        )) %>%
+   mutate(non_bifid = case_when(V1 %nin% bact_a_afficher ~ V1
                         ))
 
-V(graph)$name <- as.character(test$r)
+non_bifid_species <- test$non_bifid[!is.na(test$non_bifid)]
+
+## we will keep only edges which contains bifidobacterium species
+
+g <- graph - non_bifid_species
+
+#V(g)$name <- test$bifid
+
+## we suppress vertices with no links to the bifido
+
+g = delete.vertices(g,degree(g)<1)
 
 
+
+```
+
+## change different set of names
+
+```{r,message=F,warning=F,fig.height=12, fig.width=12}
+
+### add a label for bifid and non bifid species
+
+pal <- brewer.pal(2,"Accent")
+
+Group <- factor(get_bifid_species(tax, V(g)$name))
+
+vertex.col <- pal[Group]
+
+## change b name to be shorter
+
+V(g)$name <- gsub("Bifidobacterium", "B.", V(g)$name)
 
 ```
 
 ## plotting
 
-```{r,message=F,warning=F,fig.height=9, fig.width=12}
-
-set.seed(1244)
-
-plot(graph,
-     layout=layout.fruchterman.reingold(graph),
-     vertex.color=vertex.col , vertex.cex = 0,
-     edge.arrow.size=0.01, vertex.size = 4,vertex.label.color= "black", displaylabels = TRUE, boxed.labels =FALSE, vertex.label.dist=0.5)
-
-legend("topleft",
-       legend=levels(Group),
-       fill=pal, border=NA, col="black")
-legend("topleft",
-       legend=levels(Group),
-       border=NA, col="black")
-
-```
-
-
-## process
-
-```{r,message=F,warning=F,fig.height=9, fig.width=12}
-
-
-graph=adj2igraph(getRefit(net.c.w),
-                               vertex.attr=list(name=taxa_names(phy)),
-                               diag = TRUE)
-
-```
-
-## process que les noms qui nous intéressent
-
-```{r,message=F,warning=F,fig.height=9, fig.width=12}
-#plot_tout_fait
-
-#ggsave("network.png")
-
-
-###
-
-pal <- brewer.pal(2,"Accent")
-
-name_species <- get_species(tax, V(graph)$name)
-Group <- factor(get_bifid(tax, V(graph)$name))
-
-vertex.col <- pal[Group]
-
-V(graph)$name <- name_species
-
-## on ne va afficher le nom que des bifids et
-
-lien <- get.edgelist(graph)
-
-## je vais afficher adolescentis seulement et les b liées à adolescentis (espèce commensale)
-
-select_bact <- lien %>%
-  data.frame(.) %>%
-  filter(grepl('adolescentis|animalis|longum|breve|bifidum', X1))
-
-bact_a_afficher <- unique(c(unique(as.character(select_bact$X1)), unique(as.character(select_bact$X2))))
-
-### j'affiche que ces nom dans le network d'interaction
-
-test <- V(graph)$name %>%
-  as.data.frame()
-
-test$. <- as.character(test$.)
-names(test) <- "V1"
-
-test <- test %>%
-  mutate(r = case_when(V1 %in% bact_a_afficher ~ V1
-                        ))
-
-V(graph)$name <- as.character(test$r)
-
-```
-
-
-## Plot
-
 ```{r,message=F,warning=F,fig.height=12, fig.width=12}
 
-plot_tout_fait <- plot_network(graph, phy, type= 'taxa',
-                               color ="Genus",  label='Species')
-#plot_tout_fait
 
-```
+V(g)$name <- gsub("Bifidobacterium", "B.", V(g)$name)
 
-## Plot
+set.seed(12)
 
-```{r,message=F,warning=F,fig.height=10, fig.width=9}
-
-plot(graph,
-     layout=layout.fruchterman.reingold(graph),
+plot(g,
+     layout=layout.fruchterman.reingold(g),
      vertex.color=vertex.col , vertex.cex = 0,
-     edge.arrow.size=0.01, vertex.size = 4,vertex.label.color= "black", displaylabels = TRUE, boxed.labels =FALSE, vertex.label.dist=0.5)
-
+     vertex.size = 3,vertex.label.color= "black", displaylabels = TRUE, boxed.labels =FALSE, vertex.label.dist=0.6)
+ 
 legend("topleft",
        legend=levels(Group),
        fill=pal, border=NA, col="black")
 
-#plot_tout_fait <- plot_network(spiec.graph_species, phy, type= 'taxa',
-                               #color ="Genus",  label='Species')
-#plot_tout_fait
 
 ```
+
 
 

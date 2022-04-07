@@ -188,6 +188,24 @@ get_bifid <- function(tax,liste_taxa){
   
 }
 
+get_bifid_species <- function(tax,liste_taxa){
+  "Renvoie la liste des bifid/nonbifid à partir d'une liste d'espèces"
+  
+  tax_t <- tax %>%
+    rownames_to_column("taxa") %>%
+    mutate(Genus =
+             case_when(Genus == 'Bifidobacterium' ~ "Bifidobacterium", 
+                       TRUE ~ "Other Genus"))
+  
+  taxa <- data.frame(Species=liste_taxa)
+  
+  names <- taxa %>%
+    left_join(.,tax_t, by="Species") %>%
+    select(Genus)
+  
+  return(as.character(names$Genus))
+  
+}
 
 
 
