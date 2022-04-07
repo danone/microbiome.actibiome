@@ -1,0 +1,125 @@
+---
+title: "differential_analysis"
+author: "ruben"
+date: "06/04/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Library
+
+```{r, message=F,warning=F}
+
+library("DESeq2")
+library(dplyr)
+
+```
+
+## Import data
+
+```{r, message=F,warning=F}
+
+## load the phy object
+
+name = "phy_deseq_analysis"
+
+if(!(name %in% list.files())) {
+  
+  print(paste0("you do not have the file ",name," , please run run_spiec_easi_analyse.Rmd before."))
+  
+} else {
+  load(name)
+}
+
+## we will merge the bifidotype to the meta_data
+
+bifidotypes <- fread('enterotype_DMM') %>%
+  select(sample_id, enterotype)
+
+metadata <- data.frame(sample_data(phy)) %>%
+  rownames_to_column("sample_id") %>%
+  left_join(., bifidotypes, by="sample_id") %>%
+  column_to_rownames(var="sample_id")
+
+sample_data(phy) <- sample_data(metadata)
+
+## let's filter the na value in enterotype factor
+
+phy <- subset_samples(phy, !is.na(enterotype))
+
+```
+
+## Control
+
+```{r, message=F,warning=F}
+
+## check if species have 0 count on every sample
+
+which(colSums(test) == 0) ## all species have at least a positive count on 1 sample at least
+
+## add a pseudocount
+
+pseudocount <- 1
+
+otu <- data.frame(phy@otu_table) + pseudocount
+
+otu_table(phy) <- otu_table(as.matrix(otu), taxa_are_rows = TRUE)
+
+```
+
+## Import data and convert 
+
+```{r cars}
+
+## name of deseqfile
+
+name <- "deseq_bifidotypes"
+
+if(!(name %in% list.files())) {
+  
+  dds <- phyloseq_to_deseq2(phy, ~ enterotype)
+
+  dds_res2 <- DESeq(dds, test="Wald")
+  
+  save(dds_res2, file = name)
+  
+}else{
+  
+  load(name)
+  
+}
+
+
+co = matrix(as.character(combn(levels(factor(data.frame(sample_data(phy))[,"enterotype"])), 2)),nrow=2) # Generate pairs of groups
+
+output_FDR <- matrix(0,ncol=ncol(co),nrow=length(signif_genera))
+
+rownames(output_FDR) <- signif_genera
+
+colnames(output_FDR) <- apply(co,MARGIN=2,paste,collapse="-")
+
+output_LogFC <- output_FDR
+
+for(elem in 1:ncol(co)){ # Loop on comparisons
+  
+  # Perform contrast
+  
+  res_onecomp <- results(dds_res2,
+                         contrast=c("DP5_FoodGroups",
+                                    glue("{co[1,elem]}"),
+                                    glue("{co[2,elem]}"))
+                         , alpha=0.05)
+  
+  # Extract unadjusted pvalue of genera with significant global effect, and adjust it with BH
+  
+  output_FDR[,elem] <- p.adjust(res_onecomp[signif_genera,"pvalue"],method="BH")
+  output_LogFC[,elem] <- res_onecomp[signif_genera,"log2FoldChange"]
+}
+
+
+```
+
+
