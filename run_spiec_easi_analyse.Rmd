@@ -167,6 +167,10 @@ phy <- prune_samples(sample_sums(phy)>=1000, phy) # select sample with at least 
 
 name = "phy_deseq_analysis_bis"
 
+
+## add the bifidotype to the phy object
+
+
 if(!(name %in% list.files())) {
   
   save(phy, file = name)
@@ -325,15 +329,15 @@ V(g)$name <- gsub("Bifidobacterium", "B.", V(g)$name)
 ```{r,message=F,warning=F,fig.height=12, fig.width=12}
 
 
-V(g)$name <- gsub("Bifidobacterium", "B.", V(g)$name)
-
 set.seed(12)
 
-plot(g,
-     layout=layout.fruchterman.reingold(g),
-     vertex.color=vertex.col , vertex.cex = 0,
-     vertex.size = 3,vertex.label.color= "black", displaylabels = TRUE, boxed.labels =FALSE, vertex.label.dist=0.6)
- 
+#plot(g,
+#     layout=layout.fruchterman.reingold(g),
+#     vertex.color=vertex.col , vertex.cex = 0,
+#     vertex.size = 3,vertex.label.color= "black", displaylabels = TRUE, boxed.labels =FALSE, vertex.label.dist=0.6)
+
+plot(g) 
+
 legend("topleft",
        legend=levels(Group),
        fill=pal, border=NA, col="black")
