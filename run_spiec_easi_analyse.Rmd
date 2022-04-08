@@ -157,7 +157,7 @@ names_otu_interet <- subset_bifid_non_bifid(100, 32, otu_filtered, tax_filtered)
 
 # en 2 : les 150 les plus prévalents
 
-#names_otu_interet <- select_n_otu(150, otu_filtered)
+#names_otu_interet <- select_n_otu(132, otu_filtered)
 
 phy <- prune_taxa(taxa_names(phy) %in% names_otu_interet, phy)
 
@@ -165,7 +165,7 @@ phy <- prune_samples(sample_sums(phy)>=1000, phy) # select sample with at least 
 
 ## save the phy object for differential analysis
 
-name = "phy_deseq_analysis_bis"
+name = "phy_deseq_analysis_132"
 
 
 ## add the bifidotype to the phy object
@@ -210,7 +210,7 @@ set.seed(1244)
 
 
 
-net.c.w <- spiec.easi(phy,
+net.c.w <- spiec.easi(otu.c.w,
                     method='mb',
                     lambda.min.ratio=1e-2,
                     nlambda=20,
@@ -253,6 +253,7 @@ graph # we can see all the attributes and weights
 E(graph)[weight > 0]$color<-"orange" #now color the edges based on their values positive is steelblue
 E(graph)[weight < 0]$color<-"steelblue"  #now color the edges based on their values
 
+E(graph)$weight <- log10(abs(E(graph)$weight))
 
 ###########################
 
@@ -285,16 +286,26 @@ library(Hmisc)
 
 test <- test %>%
   unfactor(.) %>%
-  mutate(bifid = case_when(V1 %in% bact_a_afficher ~ V1
+  mutate(bifid = case_when(grepl("Bifidobacterium", V1) ~ V1
                         )) %>%
-   mutate(non_bifid = case_when(V1 %nin% bact_a_afficher ~ V1
+   mutate(non_bifid = case_when(!grepl("Bifidobacterium", V1) ~ V1
                         ))
+
+## we select the species non linked to bifid with the edgelist
+
+species_not_linked <- lien %>%
+  as.data.frame(.) %>%
+  filter(!grepl("Bifidobacterium", V1)) %>%
+  select(V2) %>%
+  distinct(.) %>%
+  as.character(.)
 
 non_bifid_species <- test$non_bifid[!is.na(test$non_bifid)]
 
 ## we will keep only edges which contains bifidobacterium species
 
-g <- graph - non_bifid_species
+
+g <- graph - species_not_linked
 
 #V(g)$name <- test$bifid
 
@@ -331,16 +342,18 @@ V(g)$name <- gsub("Bifidobacterium", "B.", V(g)$name)
 
 set.seed(12)
 
-#plot(g,
-#     layout=layout.fruchterman.reingold(g),
-#     vertex.color=vertex.col , vertex.cex = 0,
-#     vertex.size = 3,vertex.label.color= "black", displaylabels = TRUE, boxed.labels =FALSE, vertex.label.dist=0.6)
+plot(g,
+     layout=layout.fruchterman.reingold(g),
+     vertex.color=vertex.col,
+     vertex.label.dist=0.5,
+     vertex.size = 3, vertex.label.color= "black")
 
-plot(g) 
 
 legend("topleft",
        legend=levels(Group),
        fill=pal, border=NA, col="black")
+
+## kamanada kawai
 
 
 ```
