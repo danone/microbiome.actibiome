@@ -43,6 +43,34 @@ for(i in seq_along(Bifidobacterium_bins)){
 }
 
 
+#Bifidobacterium_bins = Bifidobacterium_bins[1:3]
+
+# mags_genes_id_df = data.frame(mags=NULL, genes_id=NULL)
+#
+# pb = txtProgressBar(min = 0, max = length(Bifidobacterium_bins), initial = 0)
+#
+# for(i in seq_along(Bifidobacterium_bins)){
+#
+#   mags_input_path = paste0("Bifidobacterium_bins/",Bifidobacterium_bins[i])
+#
+#   mags_prodigal_output = "bif_clusters/"
+#
+#   system(paste0("grep '^>' ", paste0(mags_prodigal_output,Bifidobacterium_bins[i],".fna"), " | cut -f 1 -d ' ' "), intern=TRUE) %>%
+#     gsub("^>","",.) -> genes_id
+#
+#   mags_genes_id_df = rbind(mags_genes_id_df, data.frame(mags=Bifidobacterium_bins[i], genes_id=genes_id))
+#
+#   setTxtProgressBar(pb,i)
+#
+# }
+# close(pb)
+#
+# readr::write_tsv(mags_genes_id_df, file = "bif_clusters/mags_genes_id.tsv")
+
+system("./extract_fasta_header.jl") #output : fna_headers.csv
+
+
+
 merge_fna_cmd = system("cat bif_clusters/*fa.fna > bif_clusters/all.bif.fna")
 
 
