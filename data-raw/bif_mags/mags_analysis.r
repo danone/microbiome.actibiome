@@ -49,6 +49,8 @@ cd_hit_est_cmd = "cd-hit-est -aS 0.9 -c 0.95 -T 0 -M 0 -t 0 -d 100 -G 0 -i bif_c
 
 system(cd_hit_est_cmd)
 
+system("./clstr2txt.pl bif_clusters/all.bif.nr95.fna.clstr > bif_clusters/all.bif.nr95.fna.tsv")
+
 
 #emapper_cmd = "python3.7 /home/tapju/bin/eggnog-mapper/emapper.py -m hmmer -d Actinobacteria --itype CDS --translate -i bif_clusters/all.bif.nr95.fna -o bif_clusters/bif.nr95.annot --cpu 16"
 #emapper_cmd = "python3.7 /home/tapju/bin/eggnog-mapper/emapper.py --itype CDS --translate -i bif_clusters/all.bif.nr95.fna -o bif_clusters/bif.nr95.annot --cpu 16"
