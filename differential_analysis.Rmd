@@ -13,8 +13,17 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r, message=F,warning=F}
 
-library("DESeq2")
+library(DESeq2)
 library(dplyr)
+library(data.table)
+library(microbiome)
+library(phyloseq)
+library(tibble)
+library(fantaxtic)
+library(glue)
+library(pheatmap)
+
+source(file = "functions.R")
 
 ```
 
@@ -24,7 +33,7 @@ library(dplyr)
 
 ## load the phy object
 
-name = "phy_deseq_analysis"
+name = "phy_deseq_analysis_150"
 
 if(!(name %in% list.files())) {
   
@@ -37,18 +46,27 @@ if(!(name %in% list.files())) {
 ## we will merge the bifidotype to the meta_data
 
 bifidotypes <- fread('enterotype_DMM') %>%
-  select(sample_id, enterotype)
+  select(sample_id, enterotype) %>%
+  rename("bifidotype" = enterotype)
 
 metadata <- data.frame(sample_data(phy)) %>%
   rownames_to_column("sample_id") %>%
   left_join(., bifidotypes, by="sample_id") %>%
   column_to_rownames(var="sample_id")
+## transform enterotype as bifidotype and factor
+  
+# convert  to factor
+
+metadata$bifidotype <- factor(metadata$bifidotype)
+
 
 sample_data(phy) <- sample_data(metadata)
 
-## let's filter the na value in enterotype factor
 
-phy <- subset_samples(phy, !is.na(enterotype))
+
+
+#otu_test_filtered <- otu_test %>%
+#  filter_all(any_vars(. %in% c(0)))
 
 ```
 
@@ -56,44 +74,69 @@ phy <- subset_samples(phy, !is.na(enterotype))
 
 ```{r, message=F,warning=F}
 
+## import otu table
+
+otu <- data.frame(phy@otu_table)
+
 ## check if species have 0 count on every sample
 
-which(colSums(test) == 0) ## all species have at least a positive count on 1 sample at least
+which(rowSums(otu) == 0) ## all species have at least a positive count on 1 sample at least
 
-## add a pseudocount
-
-pseudocount <- 1
-
-otu <- data.frame(phy@otu_table) + pseudocount
-
-otu_table(phy) <- otu_table(as.matrix(otu), taxa_are_rows = TRUE)
 
 ```
 
-## Import data and convert 
+## Deseq
 
 ```{r cars}
 
+# Get size factors
+# Create a DESeq2 temp object
+
+dds_temp = phyloseq_to_deseq2(phy, ~ 1)
+
+# Size factors estimated with filtered genera - all samples - poscounts
+
+dds_temp <- estimateSizeFactors(dds_temp, type="poscounts")
+
+sizefactors_filter <- sizeFactors(dds_temp)
+
+# Remove NA values for the core pattern and create DESeq2 object
+
+genera_temp <- prune_samples(!is.na(sample_data(phy)[["bifidotype"]]), phy)
+
+dds <- phyloseq_to_deseq2(genera_temp, ~ 1)
+
+samp_keep <- sample_names(genera_temp)
+
+
+# Add size factors and design
+
+design(dds) <- as.formula(glue("~ bifidotype"))
+
+sizeFactors(dds) <- sizefactors_filter[samp_keep]
+
+# Global pattern effect (using precomputed size factors)
+
+dds_res1 <- DESeq(dds, test="LRT", reduced= as.formula(glue("~ 1")))
+
+res_glob <- results(dds_res1, alpha=0.05)
+
+# Get list of significant genera (global effect)
+
+signif_genera <- rownames(res_glob[which(res_glob$padj<0.05),])
+
+```
+
+## Deseq
+
+```{r cars}
+## enterotype : mettre Bif. 1 etc, charactère, et le mettre en facteur
+
 ## name of deseqfile
 
-name <- "deseq_bifidotypes"
+dds_res2 <- DESeq(dds, test="Wald")
 
-if(!(name %in% list.files())) {
-  
-  dds <- phyloseq_to_deseq2(phy, ~ enterotype)
-
-  dds_res2 <- DESeq(dds, test="Wald")
-  
-  save(dds_res2, file = name)
-  
-}else{
-  
-  load(name)
-  
-}
-
-
-co = matrix(as.character(combn(levels(factor(data.frame(sample_data(phy))[,"enterotype"])), 2)),nrow=2) # Generate pairs of groups
+co = matrix(as.character(combn(levels(factor(data.frame(sample_data(phy))[,"bifidotype"])), 2)),nrow=2) # Generate pairs of groups
 
 output_FDR <- matrix(0,ncol=ncol(co),nrow=length(signif_genera))
 
@@ -108,7 +151,7 @@ for(elem in 1:ncol(co)){ # Loop on comparisons
   # Perform contrast
   
   res_onecomp <- results(dds_res2,
-                         contrast=c("DP5_FoodGroups",
+                         contrast=c("bifidotype",
                                     glue("{co[1,elem]}"),
                                     glue("{co[2,elem]}"))
                          , alpha=0.05)
@@ -122,4 +165,190 @@ for(elem in 1:ncol(co)){ # Loop on comparisons
 
 ```
 
+## Deseq
 
+```{r cars}
+
+# Extract log2FC for each group to plot them
+
+dds2 <- dds
+
+design(dds2) <- as.formula(glue("~ -1 + bifidotype"))
+
+dds_res3 <- DESeq(dds2, test="Wald")
+
+groups <- levels(colData(dds_res2)[,"bifidotype"])
+
+order_LogFC <- matrix(0,ncol=length(groups),nrow=length(signif_genera))
+
+rownames(order_LogFC) <- signif_genera
+
+colnames(order_LogFC) <- groups
+
+order_lfcSE <- order_LogFC
+
+for (group in groups) {
+  res_temp <- results(dds_res3, name = paste0("bifidotype",group))
+  order_LogFC[,group] <- res_temp[signif_genera,"log2FoldChange"]
+  order_lfcSE[,group] <- res_temp[signif_genera,"lfcSE"]
+}
+
+## save the log 2 fold change results
+
+name_FC = "output_LogFC"
+
+if(!(name_FC %in% list.files())) {
+  
+  save(output_LogFC, file = name_FC)
+  
+} else {
+  load(name)
+}
+
+data_logFC <- output_LogFC
+
+```
+
+## Post-hoc comparisons
+
+```{r cars,fig.height=20, fig.width=20}
+
+rownames(data_logFC) <- get_species(tax, rownames(data.frame(data_logFC)))
+
+rownames(output_FDR) <- get_species(tax, rownames(data.frame(output_FDR)))
+
+```
+
+## Post-hoc comparisons
+
+```{r cars,fig.height=20, fig.width=20}
+
+
+# log2FC
+melted_data_logFC <- melt(data_logFC)
+colnames(melted_data_logFC)[3] <- "Log2FC"
+
+# -log10(FDR)
+data_adj_pval <- -log10(output_FDR)
+melted_data_adj_pval <- melt(data_adj_pval)
+melted_data_adj_pval$color <- 0
+
+
+melted_data_adj_pval$color[melted_data_adj_pval$value <= -log10(0.1)] <- "NS"
+melted_data_adj_pval$color[melted_data_adj_pval$value > -log10(0.1) & melted_data_adj_pval$value <= -log10(0.05)] <- "Trend"
+melted_data_adj_pval$color[melted_data_adj_pval$value > -log10(0.05)] <- "Signif"
+melted_data_adj_pval$color = factor(melted_data_adj_pval$color, levels = c("NS","Trend","Signif"))
+
+
+
+# Data to plot with the right order
+complete_data <- merge(melted_data_logFC, melted_data_adj_pval, by=c("Var1","Var2"))
+complete_data$Var2 <- factor(complete_data$Var2, levels=colnames(data_logFC))
+
+colors_dots <- c('#f7f7f7','#969696','#252525')
+
+names(colors_dots) <- c("NS","Trend","Signif")
+
+## we suppress bifidobacterium species so that they do not hide other signals
+
+complete_data$Var1 <- gsub("Bifidobacterium", "B.", complete_data$Var1) ## simplify bifido name
+
+complete_data <- complete_data %>%
+  filter(!grepl("B.", Var1))
+
+```
+
+## Prepare differential heatmap
+
+# Prepare differential heatmap
+
+```{r cars,fig.height=20, fig.width=20}
+
+#library(ggtree)
+
+
+
+```
+
+# Plot the heatmap
+
+```{r cars,fig.height=20, fig.width=20}
+
+ggplot(data = complete_data, aes(x=Var2, y=Var1, fill=Log2FC)) + 
+  geom_tile(color="white") +
+  scale_fill_distiller(direction = -1, palette = "RdBu", limits=c(-6,6), name="Effect size\nLog2FC") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),
+        axis.text.y = element_text(size=10),
+        axis.title = element_blank(),
+        plot.title=element_text(hjust=0.5, face="bold", size=15),
+        plot.margin = unit(c(10,0,0,0), "pt")) +
+  coord_fixed() +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  geom_point(aes(size=value, color=color)) +
+  labs(size = "Evidence\n-log10(p-value)", color="Significance") +
+  scale_color_manual(values=colors_dots) +
+  scale_size(limits=c(0,30),breaks=c(5,10,20,30),range=c(1,4))
+```
+
+A few genera with significant results are shown below. Log2 fold change +/- standard error as estimated by a DESeq2 model with no intercept are plotted. Groups with the same letter are not significantly different (p-value<0.05).
+
+```{r echo=FALSE}
+# Barplots for a selected list of genera
+# Define the list of genera
+genera_to_plot <- c("BactActiActi_g_Bifidobacterium","BactTeneMoll_o_RF39_g_NA",
+                    "BactFirmClos_g_Oribacterium","BactBactBact_g_Parabacteroides")
+nice_names <- c("Bifidobacterium","Genus in RF39 order","Oribacterium","Parabacteroides")
+names(nice_names) <- genera_to_plot
+# Create compact letter display for each taxa
+completters <- matrix("",ncol=length(genera_to_plot),nrow=5)
+colnames(completters) <- genera_to_plot
+rownames(completters) <- c("HW","FL","ED","SW","PB")
+for (g in genera_to_plot) {
+  order_vec <- names(sort(order_LogFC[g,]))
+  comp <- multcompLetters(output_FDR[g,])$Letters[order_vec]
+  completters[,g] <- comp[rownames(completters)]
+}
+completters <- data.frame(completters)
+# Prepare data
+# Log2FC
+part1 <- data.frame(order_LogFC)
+part1$genus <- rownames(part1)
+part1 <- melt(part1, id.vars = "genus", variable.name="DP5_FoodGroups", value.name="Log2FC")
+# lfcSE
+part2 <- data.frame(order_lfcSE)
+part2$genus <- rownames(part2)
+part2 <- melt(part2, id.vars = "genus", variable.name="DP5_FoodGroups", value.name="lfcSE")
+# completters
+part3 <- data.frame(t(completters))
+part3$genus <- rownames(part3)
+part3 <- melt(part3, id.vars = "genus", variable.name="DP5_FoodGroups", value.name="completters")
+# Final data
+data_plot <- merge(merge(part1,part2,by=c("genus","DP5_FoodGroups")),
+                   part3,by=c("genus","DP5_FoodGroups"))
+data_plot$nice_name <- factor(nice_names[data_plot$genus],levels=nice_names)
+# Plot
+ggplot(data=data_plot, aes(x=DP5_FoodGroups, y=Log2FC)) +
+  geom_bar(stat="identity", color="black", fill="white", position=position_dodge()) +
+  geom_errorbar(aes(ymin=Log2FC-lfcSE, ymax=Log2FC+lfcSE), width=.2, position=position_dodge(.9)) +
+  scale_y_continuous(name="Log2FC +/- SE", limits=c(0,10.5)) +
+  geom_text(aes(label=completters, y=Log2FC+lfcSE), vjust=-0.5, fontface=2) +
+  facet_wrap(~nice_name) +
+  theme(axis.title.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        strip.text=element_text(hjust=0.5, face="bold"))
+```
+
+
+## Plotting heatmap
+
+```{r cars,fig.height=20, fig.width=15}
+
+
+pheatmap <- pheatmap(output_LogFC,
+                     legend_breaks = c( -15, -10, -5, 0, 5, 10, max(output_LogFC)), 
+                     legend_labels = c('-15', '-10', '-5', '0', '5', '10', "Log2FC"),
+                     legend = TRUE,  cluster_cols = FALSE,)
+
+
+```
