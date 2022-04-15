@@ -153,19 +153,19 @@ tax_filtered <- data.frame(phy@tax_table)
 
 # en 1 : en gros 100 premiers non bifids, 32 bifid
 
-names_otu_interet <- subset_bifid_non_bifid(100, 32, otu_filtered, tax_filtered) ## 100 most abundant non bifid taxa, and 32 all bifid
+#names_otu_interet <- subset_bifid_non_bifid(100, 32, otu_filtered, tax_filtered) ## 100 most abundant non bifid taxa, and 32 all bifid
 
 # en 2 : les 150 les plus prévalents
 
-#names_otu_interet <- select_n_otu(132, otu_filtered)
+#names_otu_interet <- select_n_otu(150, otu_filtered)
 
-phy <- prune_taxa(taxa_names(phy) %in% names_otu_interet, phy)
+#phy <- prune_taxa(taxa_names(phy) %in% names_otu_interet, phy)
 
-phy <- prune_samples(sample_sums(phy)>=1000, phy) # select sample with at least 1000 reads assigned to bifidobacterium
+phy <- prune_samples(sample_sums(phy)>=1000, phy) # select sample with at least 1000 reads total
 
 ## save the phy object for differential analysis
 
-name = "phy_deseq_analysis_132"
+name = "phy_deseq_analysis_all"
 
 
 ## add the bifidotype to the phy object
@@ -207,15 +207,21 @@ otu.c.w <- vegan::rrarefy(t(otu.c.w), 1000)
 
 set.seed(1244)
 
+spiec_easi_name <- "net.c.w.spieceasi"
 
-
-
-net.c.w <- spiec.easi(otu.c.w,
+if(!(spiec_easi_name %in% list.files())) {
+  
+  net.c.w <- spiec.easi(otu.c.w,
                     method='mb',
                     lambda.min.ratio=1e-2,
                     nlambda=20,
                     pulsar.params=list(rep.num=20,
                                        ncores=12))
+  
+} else {
+  load(spiec_easi_name)
+  }
+
 
 ```
 
@@ -240,13 +246,41 @@ colnames(sebeta) <- rownames(sebeta) <- rownames(t(otu.c.w))
 ```{r,message=F,warning=F,fig.height=9, fig.width=12}
 
 graph <- graph.adjacency(sebeta, mode='undirected', add.rownames = TRUE, weighted = TRUE)
-graph # we can see all the attributes and weights
 
+## first we delete the vertices with no edges
+
+graph # we can see all the attributes and weights
 
 ```
 ## set the plot parameters
 
 ```{r,message=F,warning=F,fig.height=9, fig.width=12}
+
+###########################
+
+name_species <- get_species(tax, V(graph)$name)
+V(graph)$name <- name_species
+
+###########################
+
+# export a table, species A, species B, weight
+
+name_table <- 'table_association_weight'
+
+if(!(name_table %in% list.files())) {
+  
+  list_edge <- data.frame(get.edgelist(graph)) %>%
+    mutate_all(as.character)
+
+  list_association <- data.frame(list_edge, weight = E(graph)$weight)
+  
+  colnames(list_association) <- c("sp1", "sp2","weight")
+  
+  save(list_association, file = name_table)
+  
+} else {
+  load(name_table)
+  }
 
 ## set a different colar for negative/positive weights
 
@@ -255,10 +289,7 @@ E(graph)[weight < 0]$color<-"steelblue"  #now color the edges based on their val
 
 E(graph)$weight <- log10(abs(E(graph)$weight))
 
-###########################
 
-name_species <- get_species(tax, V(graph)$name)
-V(graph)$name <- name_species
 
 
 ## on ne va afficher le nom que des bifids
@@ -267,51 +298,29 @@ V(graph)$name <- name_species
 lien <- get.edgelist(graph)
 
 
-## je vais afficher adolescentis seulement et les b liées à adolescentis (espèce commensale)
-
-select_bact <- lien %>%
-  data.frame(.) %>%
-  filter(grepl('Bifidobacterium', X1))
-
-bact_a_afficher <- unique(c(unique(as.character(select_bact$X1)), unique(as.character(select_bact$X2))))
-
-### j'affiche que ces nom dans le network d'interaction
-
-test <- V(graph)$name %>%
-  as.data.frame(.)
-
-names(test) <- "V1"
-
-library(Hmisc)
-
-test <- test %>%
-  unfactor(.) %>%
-  mutate(bifid = case_when(grepl("Bifidobacterium", V1) ~ V1
-                        )) %>%
-   mutate(non_bifid = case_when(!grepl("Bifidobacterium", V1) ~ V1
-                        ))
 
 ## we select the species non linked to bifid with the edgelist
 
+species_linked <- lien %>%
+  as.data.frame(.) %>%
+  filter(grepl("Bifidobacterium", V1)) #%>%
+  ### this line allows to select more specific species
+  #filter(grepl("longum|bifidum|breve|adolescentis|catenulatum|pseudocatenulatum|animalis|thermophilum", V1))
+  
+species_linked <- unique(c(unfactor(unique(species_linked$V1)), unfactor(unique(species_linked$V2))))
+
 species_not_linked <- lien %>%
   as.data.frame(.) %>%
-  filter(!grepl("Bifidobacterium", V1)) %>%
-  select(V2) %>%
-  distinct(.) %>%
-  as.character(.)
-
-non_bifid_species <- test$non_bifid[!is.na(test$non_bifid)]
-
-## we will keep only edges which contains bifidobacterium species
+  filter(!V1 %in% species_linked) %>%
+  filter(!V2 %in% species_linked)
+  
+species_not_linked <- unique(c(unfactor(unique(species_not_linked$V1)), unfactor(unique(species_not_linked$V2))))
 
 
-g <- graph - species_not_linked
+## delete the species not linked with bifid
+g <- delete_vertices(graph, species_not_linked)
 
-#V(g)$name <- test$bifid
-
-## we suppress vertices with no links to the bifido
-
-g = delete.vertices(g,degree(g)<1)
+g
 
 
 
@@ -339,13 +348,19 @@ V(g)$name <- gsub("Bifidobacterium", "B.", V(g)$name)
 
 ```{r,message=F,warning=F,fig.height=12, fig.width=12}
 
+graph_all <- g
+
+V(graph_all)$name[!grepl("B. ",V(graph_all)$name)] <- NA  ## non bifid species are not shown in the association network
+
+#V(graph_all)$name <- NA
+
 
 set.seed(12)
 
-plot(g,
-     layout=layout.fruchterman.reingold(g),
+plot(graph_all,
+     layout=layout.fruchterman.reingold(graph_all),
      vertex.color=vertex.col,
-     vertex.label.dist=0.5,
+     vertex.label.dist=0.8,
      vertex.size = 3, vertex.label.color= "black")
 
 
@@ -359,4 +374,11 @@ legend("topleft",
 ```
 
 
+## reduced plotting
 
+```{r,message=F,warning=F,fig.height=12, fig.width=12}
+
+
+
+
+```
