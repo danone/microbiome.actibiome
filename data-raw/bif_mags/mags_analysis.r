@@ -18,6 +18,8 @@
 
 # Rscript --vanilla mags_analysis.r
 
+library(dplyr)
+
 Bifidobacterium_bins = list.files("Bifidobacterium_bins", pattern = "*.fa")
 
 #Bifidobacterium_bins = Bifidobacterium_bins[1:100] # to test
@@ -50,6 +52,22 @@ cd_hit_est_cmd = "cd-hit-est -aS 0.9 -c 0.95 -T 0 -M 0 -t 0 -d 100 -G 0 -i bif_c
 system(cd_hit_est_cmd)
 
 system("./clstr2txt.pl bif_clusters/all.bif.nr95.fna.clstr > bif_clusters/all.bif.nr95.fna.tsv")
+
+
+all_bif_cd_hit = readr::read_tsv("bif_clusters/all.bif.nr95.fna.tsv")
+
+all_bif_cd_hit %>%
+  #head(50) %>%
+  dplyr::filter(clstr_rep == 1) %>%
+  dplyr::select(id,clstr) %>%
+  dplyr::rename(id_rep=id) -> all_bif_cd_hit_rep
+
+all_bif_cd_hit %>%
+  #head(50) %>%
+  merge(all_bif_cd_hit_rep, ., by="clstr") -> all_bif_cd_hit_rep
+
+
+readr::write_tsv(all_bif_cd_hit_rep, file="bif_clusters/all.bif.nr95.fna.rep.tsv")
 
 
 #emapper_cmd = "python3.7 /home/tapju/bin/eggnog-mapper/emapper.py -m hmmer -d Actinobacteria --itype CDS --translate -i bif_clusters/all.bif.nr95.fna -o bif_clusters/bif.nr95.annot --cpu 16"
