@@ -25,11 +25,12 @@ library(tibble)
 library(rstatix)
 library(ggpubr)
 library(ggplot2)
-library(tidyverse)
+#library(tidyverse)
 library("readxl")
 library("optparse")
 library(varhandle)
 library(tidyr)
+library("stringr")
 
 library(gplots)
 
@@ -99,6 +100,12 @@ sample_low_reads <- names(which(rowSums(count_raw) <= 500))
 count <- count_raw %>%
   as.data.frame(.) %>%
   filter_all(., any_vars(. != 0))
+
+## select ppl with 0 bifid, they are selected as a no bifid cluster
+
+no_bifid <- count_raw %>%
+  as.data.frame(.) %>%
+  filter(!row.names(.) %in% rownames(count))
 
 # colsums equal zero (bacteria not present in any sample) need to be deleted
 
@@ -258,6 +265,24 @@ pi_theta <- data.frame(mixturewt(best)) %>%
 
 pi_theta$cluster <- as.character(pi_theta$cluster)
 
+```
+
+## teta comparison
+
+# calculate a model k = 1
+
+```{r,message=F,warning=F}
+
+set.seed(seeds)
+
+fit_genus_k1 <- mclapply(1:1, dmn, count=count, verbose=FALSE, mc.cores=12)
+
+```
+
+# plot
+
+```{r,message=F,warning=F}
+
 ## we plot pi and theta by clusters. theta : give the idea of the homogeneity of each cluster
 
 ggplot(pi_theta) +
@@ -315,8 +340,6 @@ ggplot(binded) +
   
   labs(x = "Number of Dirichlet Component - K", y = "Model Fit", title = "", color = "")
 
-#max(laplace_plot$k) + 10
-
 ```
 
 ## Laplace check
@@ -329,42 +352,88 @@ model <- apply(mixture(best), 1, which.max)
 
 ## write the enterotype file
 
-enterotype <- data.frame(enterotype = model)
+enterotype <- data.frame(bifidotype = model)
 
 enterotype <- enterotype %>%
   rownames_to_column("sample_id")
 
-write.csv(enterotype, file="enterotype_DMM", row.names=TRUE, col.names=TRUE, quote=FALSE)
+## add no bifid cluster as cluster 7 to enterotype
+
+no_bifid_ <- no_bifid %>%
+  rownames_to_column("sample_id") %>%
+  select(sample_id) %>%
+  mutate(bifidotype = rep(7,nrow(.)))
+
+# rbind no bifid to enterotype
+enterotype <- enterotype %>%
+  rbind(., no_bifid_)
+
+write.csv(enterotype, file="enterotype_DMM_withnobifid", row.names=TRUE, col.names=TRUE, quote=FALSE)
 
 t <- fread("enterotype_DMM") %>%
   column_to_rownames("V1")
+
+enterotype$bifidotype <- as.character(enterotype$bifidotype)
+
+```
+
+## filtering after clustering
+
+```{r,message=F,warning=F}
+
+## predict = ascinar 2021
+
+## we remove other age categories, we only keep adults
+
+adults <- phy@sam_data %>%
+  data.frame(.) %>%
+  filter(age_category == "adult") %>%
+  rownames_to_column("sample_id") %>%
+  select(sample_id)
+
+ascinar <- phy@sam_data %>%
+  data.frame(.) %>%
+#  filter(PMID == 33432175) %>%
+  rownames_to_column("sample_id") %>%
+  select(sample_id)
+
+bifidotype <- enterotype %>%
+  filter(sample_id %in% adults$sample_id) #%>% filter(sample_id %in% ascinar$sample_id)
+
 
 
 ```
 
 ## Clusters distributions
 
-```{r,message=F,warning=F,fig.width=15, fig.height=8}
+```{r,message=F,warning=F}
 
 distribution <- enterotype %>%
   select(-sample_id) %>%
-  group_by(enterotype) %>%
-  count(enterotype)
+  group_by(bifidotype) %>%
+  table(.) %>%
+  data.frame(.)
 
-distribution$enterotype <- as.character(distribution$enterotype)
+distribution$. <- as.character(distribution$.)
 
-ggplot(distribution, aes(x = enterotype, y = n, fill = enterotype)) +  # Plot with values on top
+ggplot(distribution, aes(x = ., y = Freq, fill = .)) +  # Plot with values on top
   geom_bar(stat = "identity") +
-  geom_text(aes(label = n), vjust = 0) +
+  geom_text(aes(label = Freq), vjust = 0) +
   labs( y = "count")
 
 ```
 
-## Heatmaps
+## Bifido relative abundance per cluster
 
 ```{r,message=F,warning=F,fig.width=15, fig.height=8}
 
+phy_relative <- phy %>%
+  prune_samples(sample_names(.) %in% enterotype$sample_id, .) %>%
+  microbiome::transform(., "compositional")
 
+tax <- data.frame(phy_relative@tax_table)
+
+otu <- data.frame(phy_relative@otu_table)
 
 ```
 
@@ -411,12 +480,136 @@ heatmap.2(matrix_int,
 #dev.off()
 
 ```
+## Bifido relative abundance per cluster
+
+```{r,message=F,warning=F}
+
+## select only bifid species and do sum of all bifid species abundances
+
+bifido_names <- tax %>%
+  filter(Genus == "Bifidobacterium") %>%
+  rownames(.)
+
+otu_bifid <- otu %>%
+  filter(row.names(.) %in% bifido_names) %>%
+  colSums(.) %>%
+  data.frame(bif_rel = .) %>%
+  rownames_to_column("sample_id")
+
+sam_data <- phy_relative@sam_data %>%
+  data.frame(.) %>%
+  rownames_to_column("sample_id") %>%
+  left_join(., otu_bifid, by="sample_id") %>%
+  ## merge with cluster
+  left_join(., enterotype, by="sample_id")
+  
+
+```
+
+## Bifido five most abundant species per cluster
+
+```{r,message=F,warning=F}
+
+colnames(matrix_int) <- as.character(paste0('cluster',1:6))
+
+top_5 <- matrix_int %>%
+  data.frame(.) %>%
+  rownames_to_column('species') %>%
+  gather(key="cluster", value="value", 2:7) %>%
+  group_by(cluster) %>%
+  top_n(5, value) %>%
+  select(-value) %>%
+  rename('cluster' = 'bifidotype')
+top_5$species = gsub("B.", "Bifidobacterium", top_5$species)
+top_5$bifidotype = gsub("cluster", "", top_5$bifidotype)
+## remove multiple spaces
+top_5$species <- str_squish(top_5$species)
+
+```
+
+## search for the mean abundance of each species by cluster
+
+```{r,message=F,warning=F}
+
+otu_most <- otu
+
+rownames(otu_most) <- get_species(tax, rownames(otu_most))
+
+## group by cluster the otu table
+
+otu_most <- otu_most %>%
+  t(.) %>%
+  data.frame(.) %>%
+  select(contains("Bifidobacterium"))
+colnames(otu_most) <- gsub("\\.", " ", colnames(otu_most))
+## remove multiple spaces
+colnames(otu_most) <- str_squish(colnames(otu_most))
+
+# which(is.na(otu_most))
+
+otu_most <- otu_most %>%
+  rownames_to_column("sample_id") %>%
+  right_join(., bifidotype, by = "sample_id") %>%
+  filter(!is.na(bifidotype)) %>%
+  gather(key="species", value="abundance", 2:33)
+  
+top_5_abundance <- top_5 %>%
+  left_join(., otu_most, by = c("species", "bifidotype")) %>%
+  filter(!is.na(abundance) & bifidotype != 7) %>%
+  select(-sample_id)
+
+test <- top_5_abundance %>%
+  group_by(bifidotype, species) %>%
+  summarise(abundance = sum(abundance))
+
+```
+
+## search for the mean abundance of each species by cluster
+
+```{r,message=F,warning=F}
+
+
+p <- ggplot(top_5_abundance, aes(x = bifidotype,
+                       y = abundance, fill = factor(species))) +
+  geom_boxplot(outlier.shape = NA) +
+  theme_minimal() +
+  labs(fill= "bifidotype") +
+  coord_cartesian(ylim = c(0, 0.25))
+  
+p
+
+```
+
+## Heatmaps
+
+```{r,message=F,warning=F}
+
+
+p  <- ggplot(sam_data, aes(x = bifidotype,
+                       y = bif_rel, fill=bifidotype))
+  
+p <- p + geom_boxplot(outlier.shape = NA) +
+  
+  theme_minimal() +
+  
+  labs(x = NULL, y = NULL, title = "Relative Abundance of Bifidobacterium",fill= "Cluster") + 
+  coord_cartesian(ylim=c(0,0.3)) +
+  scale_x_discrete(limits = as.character(1:7)) +
+  stat_compare_means(label.y = 0.64, label.x ="3") +
+  stat_compare_means(label = "p.signif", method = "wilcox", ref.group = "1", label.y = 0.6) +
+  coord_cartesian(ylim = c(0, 0.64))
+  
+
+p
+
+
+```
 
 ## Boxplot Shannon
 
 ```{r,message=F,warning=F}
 
-my_comparisons = list( c("1", "2"), c("1", "3"), c("1", "4"), c("1", "5"), c("1", "6") )
+my_comparisons = list( c("1", "2"), c("1", "3"), c("1", "4"), c("1", "5"), c("1", "6"), c("1", "7") )
 
 
 diversity <- phy_diversity %>%
@@ -424,23 +617,25 @@ diversity <- phy_diversity %>%
   merge(., enterotype, by="sample_id") %>%
   select(-sample_id)
 
-diversity$enterotype <- as.character(diversity$enterotype)
+diversity$bifidotype <- as.character(diversity$bifidotype)
 
-p <- ggplot(diversity, aes(x = enterotype,
+p <- ggplot(diversity, aes(x = bifidotype,
                        y = Shannon)) +
   geom_boxplot(outlier.shape = NA) +
   theme_minimal() +
   stat_compare_means(label.y = 4.5, label.x ="3") +
-  stat_compare_means(label = "p.signif", method = "t.test", ref.group = "1", label.y = 4.1,) +
-  labs(fill= "enterotype")
+  stat_compare_means(label = "p.signif", method = "wilcox", ref.group = "1", label.y = 4.1) +
+  labs(fill= "bifidotype")
   
 p
+
 
 ```
 
 ## Description des clusters
 
-```{r,message=F,warning=F}
+```{r,message=F,warning=F, fig.height=9, fig.width = 15}
+
 
 distribution <- function(category, type){
   
@@ -449,34 +644,43 @@ distribution <- function(category, type){
     data.frame(.) %>%
     rownames_to_column("sample_id") %>%
     merge(., enterotype, by="sample_id") %>%
-    select(enterotype,all_of(category)) %>%
+    select(bifidotype,all_of(category)) %>%
     group_by_all(.) %>%
     summarise(rows = n(), .groups = 'drop') %>%
-    group_by_at('enterotype') %>%
+    group_by_at('bifidotype') %>%
     mutate(percent = rows/sum(rows)) %>%
     dplyr::rename(., 'category' = category)
   
- # map$percent <- round(map$percent*100,1)
   
-  p <- ggplot(map, aes(x = enterotype,y=percent, fill = category)) +
-    geom_bar(stat="identity") +
-    geom_text(aes(label = paste0(round(percent*100,1),"%, (",rows,")")),position = position_fill(vjust = 0.5), size =2.5) +
+    p2 <- ggplot(map, aes(x = bifidotype,y=percent, fill = category)) +
+    geom_bar(stat="identity", position=position_dodge()) +
+    geom_text(aes(label = paste0(rows)),vjust=-2.6, color="black",
+            position = position_dodge(0.9), size=3.5) +
+      geom_text(aes(label = paste0(round(percent*100,1), "%")),vjust=-0.6, color="black",
+            position = position_dodge(0.9), size=3.5) +
     #geom_text(aes(label = paste0(round(percent*100,1),"%"), vjust = 1), position = position_fill(vjust = 0.5), size =3) +
     theme_classic() +
     scale_fill_brewer(type = type) +
-    labs(x = "Cluster K", y = "percent", fill = category)
+    labs(x = "Cluster K", y = "percent", fill = category) +
+      guides(y = "none") +
+      ylim(0, 1.2)
   
-  p
+  p2
 
 }
 
 distribution('westernized', 'qual')
 
-distribution('age_category', type = NULL)
+```
+
+## Description des clusters
+
+```{r,message=F,warning=F, fig.height=9, fig.width = 19}
 
 distribution('disease', "qual")
 
 ```
+
 ## table de contingence enterotypes * bifidotypes
 
 ```{r,message=F,warning=F}
@@ -490,8 +694,9 @@ library("gplots")
 bifidotype <- enterotype
 
 enterotype_whole_microbiota <- fread('enterotypes_curated_v3_prediction.csv') %>%
-  select(sample_name, Enterotypes_id) %>%
-  rename(., "sample_id" = sample_name)
+  data.frame(.) %>%
+  select('sample_name', 'Enterotypes_id') %>%
+  rename(sample_name = 'sample_id')
 
 contingeny_table <- bifidotype %>%
   merge(., enterotype_whole_microbiota, by="sample_id") %>%
@@ -531,10 +736,11 @@ healthy <- map %>%
 print(paste0('le nombre de healthy dans curation est : ',nrow(healthy)))
 
 healthy_healthy <- read_excel('metadata_healthy_healthy.xlsx') %>%
+  data.frame(.) %>%
   rename('sample_id' = Sample_ID) %>%
   merge(., healthy, by='sample_id')
   
-print(paste0('le nombre de healthy-healthy dans curation est : ',nrow(my_data)))
+print(paste0('le nombre de healthy-healthy dans curation est : ',nrow(healthy_healthy)))
 
 ```
 

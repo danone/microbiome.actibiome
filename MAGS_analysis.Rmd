@@ -1,0 +1,118 @@
+---
+title: "MAGS_analysis"
+author: "ruben"
+date: "22/04/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Librairies
+
+```{r,message=F,warning=F}
+
+library(dplyr)
+library(readr)
+library(pheatmap)
+
+
+source(file = "functions.R")
+
+```
+
+## Données
+
+```{r,message=F,warning=F}
+
+load("curated_v3_otu_tax.rda")
+
+## MAGS annotations data
+mags_tax_file = readr::read_tsv("MAGS_files/annotations_url_metadata_opendata.tsv") %>%
+  filter(assigned_genus=="Bifidobacterium") %>%
+  select(genome_name,study,sample_name,assigned_species,completeness, average_distance)
+
+# MAGS linked to other ID's
+mags_tax_gene_id_eggnog <- readr::read_csv2("MAGS_files/mags_tax_gene_id_eggnog.csv") %>%
+   select(-X1)
+
+```
+
+
+## Prepare plot
+
+```{r,message=F,warning=F}
+
+
+ mags_tax_gene_id_eggnog %>%
+   filter(completeness >= 90 & average_distance <= 0.015) %>%
+   filter(KEGG_ko != "-") %>%
+   group_by(KEGG_ko) %>%
+  mutate(ko_n=n()) %>%
+   filter(ko_n>10) %>%
+   ungroup() %>%
+   group_by(genome_name,KEGG_ko) %>%
+   summarise(n=n()) %>%
+   mutate(n=ifelse(n>1,2,n)) %>%
+   reshape2::dcast(genome_name~KEGG_ko, value.var = "n", fill=0) -> mags_ko_table
+
+   
+
+heat <- mags_ko_table %>%
+  tibble::column_to_rownames("genome_name") %>%
+#  .[1:min(500, nrow(.)),1:min(50, ncol(.))] %>%
+  as.matrix()
+
+```
+
+## filter heatmap/add metadata
+
+```{r,message=F,warning=F}
+
+sample <- sampleMetadata
+
+## if one ppl has several samples, keep the sample with the highest nb of reads
+sample <- unique(setDT(sampleMetadata)[order(subject_id, -number_reads)], by = "subject_id")
+
+metadata <- sample %>%
+   ## transform disease and westernized to good format
+   transform_disease(.) %>%
+   transform_westernized(.) %>%
+   select(sample_id, body_site, disease, age_category, gender, country, westernized, BMI, antibiotics_current_use)
+
+
+## merge with mags_tax
+
+mags_tax <- mags_tax_file %>%
+   merge(metadata, by.x = "sample_name", by.y = "sample_id") %>%
+   tibble::column_to_rownames("genome_name")
+
+#mags_tax
+
+```
+
+## Filter heat
+
+```{r,message=F,warning=F}
+
+## we filter heat lines which are in mags_tax rownames
+
+heat <- heat %>%
+   data.frame(.) %>%
+   filter(row.names(.) %in% rownames(mags_tax))
+
+```
+
+
+## Plotting
+
+```{r,message=F,warning=F, fig.height=9, fig.width = 9}
+
+pheatmap(heat, cutree_rows = 9,show_rownames = FALSE,
+                   show_colnames = FALSE, #filename = "mag_ko_plot_full.pdf" ,
+                   annotation_row = mags_tax %>%
+                      select(disease, westernized, BMI, age_category, assigned_species))
+
+```

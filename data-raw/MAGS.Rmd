@@ -1,0 +1,142 @@
+---
+title: "MAGS"
+author: "ruben"
+date: "13/04/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#knitr::opts_knit$set(root.dir = '/home/tapju/storage/actibiome/data-raw/bif_mags/bif_clusters')
+```
+
+## Libraries/paths
+
+```{r,message=F,warning=F}
+
+library(data.table)
+
+library("dplyr")
+
+library('stringr')
+
+library("Biostrings")
+
+source(file = "/home/ladeirru/GitHub/microbiome.actibiome/functions.R")
+
+
+
+### data
+
+# for each mags, we have a tsv
+# in each tsv, we have genes by row and in columns, annotations
+# join key : egg_nog annotation : join between mags
+# e-value : this is this one that is the closest to the eggnog
+
+# query name = gene id
+# seed_eggNOG_ortholog = eggnog_id
+# GO_term, KEGG, Bigg, OG COG => link between eggnogs and other bases
+# eggNOG annot => complete name of the eggnog (gene name !)
+# an eggnog is a cluster of an orthologous gene : they are genes shared among species
+# chaque mags est spécifique des bifids et provient des échantillons de la base curated
+
+# un echantillons donne plusieurs mags => chaque mags est assigné taxonomiquement à une espece => dans chaque mags tu as des genes => chaque gene a des orthologues que tu peux retrouver dans plusieurs especes differentes
+
+
+# dans ce fichier tu as le lien entre MAGS et les echantillons metaG et leur assignation taxonomiqueannotations_url_metadata_opendata.tsv
+
+# un suggestion de library pour faire des heatmap : ComplexHeatmap
+
+
+
+### ensuite pour les autres fichiers :
+
+# annotations_url_metadata_opendata.tsv : fait le lien entre chaque MAGS et les échantillons et la taxo
+
+## les fichiers .txt sont juste les liens qui ont permis de télécharger les MAGS avec AWS
+
+
+#### heatmap
+
+
+# https://jokergoo.github.io/ComplexHeatmap-reference/book/ <= package interessant pour faire des heatmap complexe
+
+```
+
+## R Markdown
+
+```{r,message=F,warning=F}
+
+## we import annotations only specific to bifidobacterium
+
+clst <- fread("all.bif.nr95.fna.tsv")
+
+
+```
+
+
+## Process
+
+```{r,message=F,warning=F}
+
+## construct a table with each gene associated with its representative gene
+
+repr_genes <- clst %>%
+  group_by(clstr) %>%
+  slice(which.max(length)) %>%
+  select(id, clstr)
+
+print(paste0("we have ", nrow(repr_genes), " representative genes over ", nrow(clst)," total genes"))
+
+```
+## Merge both
+
+```{r,message=F,warning=F}
+
+## associated each gene with his representative gene by cluster
+
+associated <- clst %>%
+  select(id, clstr) %>%
+  full_join(., repr_genes, by = "clstr") %>%
+  select(-clstr)
+colnames(associated) <- c("id_gene", "id_repr_gene")
+
+head(fread("/home/ladeirru/GitHub/microbiome.actibiome/data-raw/bif_mags/Bifidobacterium_annotation/annotations_url_metadata_opendata.tsv"))
+
+
+
+## for all .fna files, take the gene id from the fasta sequences
+## then table of assciation between gene_id and MAGS id
+
+alias_directory <- '/home/ladeirru/GitHub/microbiome.actibiome/data-raw/alias'
+
+## select all faa files in the repertory
+
+faa_files <- list.files(pattern = "*.faa", recursive = TRUE, full.names = TRUE)
+
+list_mags <- vector("list")
+
+for(mags in faa_files){
+  
+  file <- readDNAStringSet(mags)
+  
+  name_mag <- gsub('.fa.faa', '', mags)
+  name_mag <- gsub('./alias/', '', name_mag)
+  
+  
+  name_genes <- gsub(" #.*", "", names(file))
+  
+  #get length of list called my_list
+  len <- length(list_mags)
+
+  #append value to end of list
+  list_mags[[len+1]] <- c(name_mag, name_genes)
+  
+  print(list_mags[[len+1]])
+}
+  
+
+
+
+```

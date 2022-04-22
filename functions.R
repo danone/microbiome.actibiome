@@ -33,6 +33,16 @@ merge_samples_mean <- function(physeq, group){
 
 ########################################
 
+transform_westernized <- function(map){
+  
+  map <- map %>%
+    mutate(., westernized =
+             case_when(non_westernized == 'yes' ~ "no",
+                       non_westernized == 'no' ~ "yes"))
+  
+  return (map)
+  
+}
 
 transform_disease <- function(map){
   

@@ -46,8 +46,7 @@ if(!(name %in% list.files())) {
 ## we will merge the bifidotype to the meta_data
 
 bifidotypes <- fread('enterotype_DMM') %>%
-  select(sample_id, enterotype) %>%
-  rename("bifidotype" = enterotype)
+  select(sample_id, bifidotype)
 
 metadata <- data.frame(sample_data(phy)) %>%
   rownames_to_column("sample_id") %>%
@@ -75,6 +74,8 @@ sample_data(phy) <- sample_data(metadata)
 ```{r, message=F,warning=F}
 
 ## import otu table
+
+tax <- data.frame(phy@tax_table)
 
 otu <- data.frame(phy@otu_table)
 
@@ -146,6 +147,8 @@ colnames(output_FDR) <- apply(co,MARGIN=2,paste,collapse="-")
 
 output_LogFC <- output_FDR
 
+output_baseMean <- output_FDR
+
 for(elem in 1:ncol(co)){ # Loop on comparisons
   
   # Perform contrast
@@ -160,6 +163,7 @@ for(elem in 1:ncol(co)){ # Loop on comparisons
   
   output_FDR[,elem] <- p.adjust(res_onecomp[signif_genera,"pvalue"],method="BH")
   output_LogFC[,elem] <- res_onecomp[signif_genera,"log2FoldChange"]
+  output_baseMean[,elem] <- res_onecomp[signif_genera,"baseMean"]
 }
 
 
@@ -187,25 +191,46 @@ colnames(order_LogFC) <- groups
 
 order_lfcSE <- order_LogFC
 
+order_baseMean <- order_LogFC
+
 for (group in groups) {
   res_temp <- results(dds_res3, name = paste0("bifidotype",group))
   order_LogFC[,group] <- res_temp[signif_genera,"log2FoldChange"]
   order_lfcSE[,group] <- res_temp[signif_genera,"lfcSE"]
+  order_baseMean[, group] <- res_temp[signif_genera, "baseMean"]
 }
 
 ## save the log 2 fold change results
 
-name_FC = "output_LogFC"
+name_FC = "output_LogFC_7"
+
+name_FDR = "output_FDR_7"
+
+name_baseMean <- "output_baseMean_7"
+
+output_LogFC_7 <- output_LogFC
+
+output_FDR_7 <- output_FDR
+
+output_baseMean_7 <- output_baseMean
 
 if(!(name_FC %in% list.files())) {
   
   save(output_LogFC, file = name_FC)
   
+  save(output_FDR, file = name_FDR)
+  
 } else {
-  load(name)
+  load(name_FC)
+  load(name_FDR)
+  load(name_baseMean)
 }
 
 data_logFC <- output_LogFC
+
+name_FDR <- output_FDR
+
+data_baseMean <- data_logFC
 
 ```
 
@@ -215,7 +240,9 @@ data_logFC <- output_LogFC
 
 rownames(data_logFC) <- get_species(tax, rownames(data.frame(data_logFC)))
 
-rownames(output_FDR) <- get_species(tax, rownames(data.frame(output_FDR)))
+rownames(name_FDR) <- get_species(tax, rownames(data.frame(name_FDR)))
+
+rownames(output_baseMean) <- get_species(tax, rownames(data.frame(output_baseMean)))
 
 ```
 
@@ -229,7 +256,7 @@ melted_data_logFC <- melt(data_logFC)
 colnames(melted_data_logFC)[3] <- "Log2FC"
 
 # -log10(FDR)
-data_adj_pval <- -log10(output_FDR)
+data_adj_pval <- -log10(name_FDR)
 melted_data_adj_pval <- melt(data_adj_pval)
 melted_data_adj_pval$color <- 0
 
@@ -256,27 +283,35 @@ complete_data$Var1 <- gsub("Bifidobacterium", "B.", complete_data$Var1) ## simpl
 complete_data <- complete_data %>%
   filter(!grepl("B.", Var1))
 
-```
-
-## Prepare differential heatmap
-
-# Prepare differential heatmap
-
-```{r cars,fig.height=20, fig.width=20}
-
-#library(ggtree)
-
-
 
 ```
+
+## Filter species based on basemean
+
+```{r cars,message=F,warning=F}
+
+species_to_select <- output_baseMean %>%
+  data.frame(.) %>%
+  filter(!grepl("Bifidobacterium", row.names(.))) %>%
+  filter(row.names(.) %in% complete_data$Var1) %>%
+  select(1) %>%
+  top_n(30) %>%
+  rownames(.) %>%
+  as.character(.)
+
+complete_data_filtered <- complete_data %>%
+  filter(Var1 %in% species_to_select)
+
+```
+
 
 # Plot the heatmap
 
-```{r cars,fig.height=20, fig.width=20}
+```{r cars,fig.height=10, fig.width=10}
 
-ggplot(data = complete_data, aes(x=Var2, y=Var1, fill=Log2FC)) + 
+ggplot(data = complete_data_filtered, aes(x=Var2, y=Var1, fill=Log2FC)) + 
   geom_tile(color="white") +
-  scale_fill_distiller(direction = -1, palette = "RdBu", limits=c(-6,6), name="Effect size\nLog2FC") +
+  scale_fill_distiller(direction = -1, palette = "RdBu", limits=c(floor(min(complete_data_filtered$Log2FC)), ceiling(max(complete_data_filtered$Log2FC))), name="Effect size\nLog2FC") +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),
         axis.text.y = element_text(size=10),
@@ -288,57 +323,46 @@ ggplot(data = complete_data, aes(x=Var2, y=Var1, fill=Log2FC)) +
   geom_point(aes(size=value, color=color)) +
   labs(size = "Evidence\n-log10(p-value)", color="Significance") +
   scale_color_manual(values=colors_dots) +
-  scale_size(limits=c(0,30),breaks=c(5,10,20,30),range=c(1,4))
+  scale_size(limits=c(0,30),breaks=c(5,10,15,23),range=c(1,4))
+
+
 ```
 
-A few genera with significant results are shown below. Log2 fold change +/- standard error as estimated by a DESeq2 model with no intercept are plotted. Groups with the same letter are not significantly different (p-value<0.05).
 
-```{r echo=FALSE}
-# Barplots for a selected list of genera
-# Define the list of genera
-genera_to_plot <- c("BactActiActi_g_Bifidobacterium","BactTeneMoll_o_RF39_g_NA",
-                    "BactFirmClos_g_Oribacterium","BactBactBact_g_Parabacteroides")
-nice_names <- c("Bifidobacterium","Genus in RF39 order","Oribacterium","Parabacteroides")
-names(nice_names) <- genera_to_plot
-# Create compact letter display for each taxa
-completters <- matrix("",ncol=length(genera_to_plot),nrow=5)
-colnames(completters) <- genera_to_plot
-rownames(completters) <- c("HW","FL","ED","SW","PB")
-for (g in genera_to_plot) {
-  order_vec <- names(sort(order_LogFC[g,]))
-  comp <- multcompLetters(output_FDR[g,])$Letters[order_vec]
-  completters[,g] <- comp[rownames(completters)]
-}
-completters <- data.frame(completters)
-# Prepare data
-# Log2FC
-part1 <- data.frame(order_LogFC)
-part1$genus <- rownames(part1)
-part1 <- melt(part1, id.vars = "genus", variable.name="DP5_FoodGroups", value.name="Log2FC")
-# lfcSE
-part2 <- data.frame(order_lfcSE)
-part2$genus <- rownames(part2)
-part2 <- melt(part2, id.vars = "genus", variable.name="DP5_FoodGroups", value.name="lfcSE")
-# completters
-part3 <- data.frame(t(completters))
-part3$genus <- rownames(part3)
-part3 <- melt(part3, id.vars = "genus", variable.name="DP5_FoodGroups", value.name="completters")
-# Final data
-data_plot <- merge(merge(part1,part2,by=c("genus","DP5_FoodGroups")),
-                   part3,by=c("genus","DP5_FoodGroups"))
-data_plot$nice_name <- factor(nice_names[data_plot$genus],levels=nice_names)
-# Plot
-ggplot(data=data_plot, aes(x=DP5_FoodGroups, y=Log2FC)) +
-  geom_bar(stat="identity", color="black", fill="white", position=position_dodge()) +
-  geom_errorbar(aes(ymin=Log2FC-lfcSE, ymax=Log2FC+lfcSE), width=.2, position=position_dodge(.9)) +
-  scale_y_continuous(name="Log2FC +/- SE", limits=c(0,10.5)) +
-  geom_text(aes(label=completters, y=Log2FC+lfcSE), vjust=-0.5, fontface=2) +
-  facet_wrap(~nice_name) +
-  theme(axis.title.x = element_blank(),
-        axis.ticks.x = element_blank(),
-        strip.text=element_text(hjust=0.5, face="bold"))
+## Prepare data for a pheatmap for better representation
+
+```{r cars,fig.height=10, fig.width=10}
+
+pheat <- complete_data_filtered %>%
+  select(Var1, Var2, Log2FC) %>%
+  spread(key = Var2, value = Log2FC) %>%
+  column_to_rownames("Var1")
+
+data <- complete_data_filtered
+
+p_values <- complete_data_filtered %>%
+  select(Var1, Var2, value) %>%
+  spread(key = Var2, value = value) %>%
+  column_to_rownames("Var1")
+  
+signif <- complete_data_filtered %>%
+  mutate(., color =
+           case_when(color == 'NS' ~ "",
+                     color == 'Trend' ~ "*",
+                     color == 'Signif' ~ "***")) %>%
+  select(Var1, Var2, color) %>%
+  spread(key = Var2, value = color) %>%
+  column_to_rownames("Var1")
+
 ```
 
+## Plotting pheatmap
+
+```{r cars,fig.height=10, fig.width=10}
+
+pheatmap(pheat, display_numbers = signif)
+
+```
 
 ## Plotting heatmap
 

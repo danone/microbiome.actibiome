@@ -129,7 +129,7 @@ phy <- phyloseq(otu, mapp, taxo)
 
 phy <- subset_samples(phy, body_site == "stool")
 
-phy <- subset_samples(phy, age_category == "adult")
+#phy <- subset_samples(phy, age_category == "adult")
 
 ```
 
@@ -157,15 +157,15 @@ tax_filtered <- data.frame(phy@tax_table)
 
 # en 2 : les 150 les plus prévalents
 
-#names_otu_interet <- select_n_otu(150, otu_filtered)
+names_otu_interet <- select_n_otu(150, otu_filtered)
 
-#phy <- prune_taxa(taxa_names(phy) %in% names_otu_interet, phy)
+phy <- prune_taxa(taxa_names(phy) %in% names_otu_interet, phy)
 
 phy <- prune_samples(sample_sums(phy)>=1000, phy) # select sample with at least 1000 reads total
 
 ## save the phy object for differential analysis
 
-name = "phy_deseq_analysis_all"
+name = "phy_deseq_analysis_150"
 
 
 ## add the bifidotype to the phy object
