@@ -17,6 +17,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(dplyr)
 library(readr)
 library(pheatmap)
+library(data.table)
 
 
 source(file = "functions.R")
@@ -46,8 +47,8 @@ mags_tax_gene_id_eggnog <- readr::read_csv2("MAGS_files/mags_tax_gene_id_eggnog.
 ```{r,message=F,warning=F}
 
 
- mags_tax_gene_id_eggnog %>%
-   filter(completeness >= 90 & average_distance <= 0.015) %>%
+mags_ko_table <- mags_tax_gene_id_eggnog %>%
+   filter(completeness >= 90) %>%
    filter(KEGG_ko != "-") %>%
    group_by(KEGG_ko) %>%
   mutate(ko_n=n()) %>%
@@ -56,13 +57,28 @@ mags_tax_gene_id_eggnog <- readr::read_csv2("MAGS_files/mags_tax_gene_id_eggnog.
    group_by(genome_name,KEGG_ko) %>%
    summarise(n=n()) %>%
    mutate(n=ifelse(n>1,2,n)) %>%
-   reshape2::dcast(genome_name~KEGG_ko, value.var = "n", fill=0) -> mags_ko_table
+   reshape2::dcast(genome_name~KEGG_ko, value.var = "n", fill=0)
+
+mags_cazy_table <- mags_tax_gene_id_eggnog %>%
+   filter(completeness >= 90) %>%
+   filter(CAZy != "-") %>%
+   group_by(CAZy) %>%
+  mutate(cazy_n=n()) %>%
+   filter(cazy_n>10) %>%
+   ungroup() %>%
+   group_by(genome_name,CAZy) %>%
+   summarise(n=n()) %>%
+   mutate(n=ifelse(n>1,2,n)) %>%
+   reshape2::dcast(genome_name~CAZy, value.var = "n", fill=0)
 
    
 
-heat <- mags_ko_table %>%
+heat_ko <- mags_ko_table %>%
   tibble::column_to_rownames("genome_name") %>%
-#  .[1:min(500, nrow(.)),1:min(50, ncol(.))] %>%
+  as.matrix()
+
+heat_cazy <- mags_cazy_table %>%
+  tibble::column_to_rownames("genome_name") %>%
   as.matrix()
 
 ```
@@ -87,9 +103,9 @@ metadata <- sample %>%
 
 mags_tax <- mags_tax_file %>%
    merge(metadata, by.x = "sample_name", by.y = "sample_id") %>%
-   tibble::column_to_rownames("genome_name")
-
-#mags_tax
+   tibble::column_to_rownames("genome_name") %>%
+   filter(assigned_species != "N/A") %>%
+   filter(grepl("adolescentis|animalis|longum|bifidum|dentium|pseudocatenulatum|catenulatum", assigned_species))
 
 ```
 
@@ -99,20 +115,107 @@ mags_tax <- mags_tax_file %>%
 
 ## we filter heat lines which are in mags_tax rownames
 
-heat <- heat %>%
+heat_ko <- heat_ko %>%
    data.frame(.) %>%
    filter(row.names(.) %in% rownames(mags_tax))
+
+
+heat_cazy <- heat_cazy %>%
+   data.frame(.) %>%
+   filter(row.names(.) %in% rownames(mags_tax))
+
+# the species
+species <- levels(factor(mags_tax$assigned_species))
+
+```
+
+## Delete the species not assigned to MAGS
+
+```{r,message=F,warning=F, fig.height=9, fig.width = 9}
+
+for (one_species in species){
+   
+   mags_tax_filtered <- mags_tax %>% filter(assigned_species == one_species)
+   
+   heat_ko_filtered <- heat_ko %>% filter(row.names(.) %in% rownames(mags_tax_filtered))
+   
+   
+   if(nrow(heat_ko_filtered) <10){
+      
+      species <- species[!species %in% one_species]
+      
+      }
+      
+   }
+
+mags_tax <- mags_tax %>% filter(assigned_species %in% species)
+
+```
+
+## Plotting cazy enzymes
+
+```{r,message=F,warning=F, fig.height=9, fig.width = 9}
+
+library("remotes")
+library("RColorBrewer")
+
+palette <- brewer.pal(n = 12, name = 'Paired')
+
+
+## number of species to respresent
+nb_species <- length(species)
+
+annotation_colors = list(
+  assigned_species = palette[1:nb_species])
+
+## assign names to the list of colors
+
+names(annotation_colors$assigned_species) <- levels(factor(mags_tax$assigned_species))
 
 ```
 
 
-## Plotting
+## Plotting cazy enzymes
 
 ```{r,message=F,warning=F, fig.height=9, fig.width = 9}
 
-pheatmap(heat, cutree_rows = 9,show_rownames = FALSE,
-                   show_colnames = FALSE, #filename = "mag_ko_plot_full.pdf" ,
+pheat <- pheatmap(heat_ko, cutree_rows = 9,show_rownames = FALSE,
+                   show_colnames = FALSE,
                    annotation_row = mags_tax %>%
-                      select(disease, westernized, BMI, age_category, assigned_species))
+                      select(disease, westernized, BMI, age_category, assigned_species),
+         annotation_colors = annotation_colors,
+         main= "COUCOU"
+         )
+
+pheat
+
+
+```
+
+
+## Plotting one MAGS per species
+
+```{r,message=F,warning=F, fig.height=9, fig.width = 9}
+
+## KO annotations : plot a mags per species
+
+for (one_species in species){
+   
+   mags_tax_filtered <- mags_tax %>% filter(assigned_species == one_species)
+   
+   print(nrow(mags_tax))
+   
+   pheat <- pheatmap(heat_ko %>% filter(row.names(.) %in% rownames(mags_tax_filtered)),
+                     cutree_rows = 9,
+                     show_rownames = FALSE,
+                     show_colnames = FALSE,
+                     annotation_row = mags_tax_filtered %>%
+                        select(disease, westernized, BMI, age_category),
+                     annotation_colors = annotation_colors,
+                     main= paste0(one_species, " MAGS")
+                     )
+
+   pheat
+}
 
 ```
