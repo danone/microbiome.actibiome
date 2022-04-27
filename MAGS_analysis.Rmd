@@ -18,6 +18,7 @@ library(dplyr)
 library(readr)
 library(pheatmap)
 library(data.table)
+library(tidyr)
 
 
 source(file = "functions.R")
@@ -42,6 +43,12 @@ mags_tax_gene_id_eggnog <- readr::read_csv2("MAGS_files/mags_tax_gene_id_eggnog.
 ```
 
 
+## Choose the functionnality (Eggnog, Cazy, etc)
+
+```{r,message=F,warning=F}
+
+```
+
 ## Prepare plot
 
 ```{r,message=F,warning=F}
@@ -49,15 +56,19 @@ mags_tax_gene_id_eggnog <- readr::read_csv2("MAGS_files/mags_tax_gene_id_eggnog.
 
 mags_ko_table <- mags_tax_gene_id_eggnog %>%
    filter(completeness >= 90) %>%
-   filter(KEGG_ko != "-") %>%
-   group_by(KEGG_ko) %>%
+   filter((!!sym('KEGG_ko')) != "-") %>%
+   group_by_at('KEGG_ko') %>%
   mutate(ko_n=n()) %>%
    filter(ko_n>10) %>%
    ungroup() %>%
-   group_by(genome_name,KEGG_ko) %>%
+   group_by_at(vars('genome_name','KEGG_ko')) %>%
    summarise(n=n()) %>%
    mutate(n=ifelse(n>1,2,n)) %>%
-   reshape2::dcast(genome_name~KEGG_ko, value.var = "n", fill=0)
+   reshape2::dcast(paste0('genome_name', '~', 'KEGG_ko'), value.var = "n", fill=0)
+   
+test <- mags_ko_table %>%
+   #spread_('KEGG_ko', 'n')
+   reshape2::dcast(paste0('genome_name', '~', 'KEGG_ko'), value.var = "n", fill=0)
 
 mags_cazy_table <- mags_tax_gene_id_eggnog %>%
    filter(completeness >= 90) %>%
@@ -175,24 +186,6 @@ names(annotation_colors$assigned_species) <- levels(factor(mags_tax$assigned_spe
 ```
 
 
-## Plotting cazy enzymes
-
-```{r,message=F,warning=F, fig.height=9, fig.width = 9}
-
-pheat <- pheatmap(heat_ko, cutree_rows = 9,show_rownames = FALSE,
-                   show_colnames = FALSE,
-                   annotation_row = mags_tax %>%
-                      select(disease, westernized, BMI, age_category, assigned_species),
-         annotation_colors = annotation_colors,
-         main= "COUCOU"
-         )
-
-pheat
-
-
-```
-
-
 ## Plotting one MAGS per species
 
 ```{r,message=F,warning=F, fig.height=9, fig.width = 9}
@@ -203,16 +196,14 @@ for (one_species in species){
    
    mags_tax_filtered <- mags_tax %>% filter(assigned_species == one_species)
    
-   print(nrow(mags_tax))
-   
    pheat <- pheatmap(heat_ko %>% filter(row.names(.) %in% rownames(mags_tax_filtered)),
                      cutree_rows = 9,
                      show_rownames = FALSE,
                      show_colnames = FALSE,
                      annotation_row = mags_tax_filtered %>%
-                        select(disease, westernized, BMI, age_category),
+                        select(disease, westernized, age_category),
                      annotation_colors = annotation_colors,
-                     main= paste0(one_species, " MAGS")
+                     main= paste0(one_species, " MAGS | ", functions_name, " annotations")
                      )
 
    pheat
