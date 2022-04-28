@@ -47,6 +47,25 @@ mags_tax_gene_id_eggnog <- readr::read_csv2("MAGS_files/mags_tax_gene_id_eggnog.
 
 ```{r,message=F,warning=F}
 
+which_function <- readline(prompt=paste("Which functions you want to plot ? : ", "Kegg-KO - ko", "Cazy - ca","", sep="\n"))
+
+while(!which_function %in% c("ko", "ca")){
+  which_function <- readline(prompt=paste("Error, please redo : ", "Kegg-KO - ko", "Cazy - ca","", sep="\n"))
+}
+
+if(which_function == "ko"){
+  ## we exclude predict data
+  
+  functionality <- "KEGG_ko"
+  
+} else{
+  ## we keep only predict data
+  
+  functionality <- "CAZy"
+  
+}
+
+
 ```
 
 ## Prepare plot
@@ -56,39 +75,19 @@ mags_tax_gene_id_eggnog <- readr::read_csv2("MAGS_files/mags_tax_gene_id_eggnog.
 
 mags_ko_table <- mags_tax_gene_id_eggnog %>%
    filter(completeness >= 90) %>%
-   filter((!!sym('KEGG_ko')) != "-") %>%
-   group_by_at('KEGG_ko') %>%
+   filter((!!sym(functionality)) != "-") %>%
+   group_by_at(functionality) %>%
   mutate(ko_n=n()) %>%
    filter(ko_n>10) %>%
    ungroup() %>%
-   group_by_at(vars('genome_name','KEGG_ko')) %>%
+   group_by_at(vars('genome_name',functionality)) %>%
    summarise(n=n()) %>%
    mutate(n=ifelse(n>1,2,n)) %>%
-   reshape2::dcast(paste0('genome_name', '~', 'KEGG_ko'), value.var = "n", fill=0)
-   
-test <- mags_ko_table %>%
-   #spread_('KEGG_ko', 'n')
-   reshape2::dcast(paste0('genome_name', '~', 'KEGG_ko'), value.var = "n", fill=0)
+   reshape2::dcast(paste0('genome_name', '~', functionality), value.var = "n", fill=0)
 
-mags_cazy_table <- mags_tax_gene_id_eggnog %>%
-   filter(completeness >= 90) %>%
-   filter(CAZy != "-") %>%
-   group_by(CAZy) %>%
-  mutate(cazy_n=n()) %>%
-   filter(cazy_n>10) %>%
-   ungroup() %>%
-   group_by(genome_name,CAZy) %>%
-   summarise(n=n()) %>%
-   mutate(n=ifelse(n>1,2,n)) %>%
-   reshape2::dcast(genome_name~CAZy, value.var = "n", fill=0)
 
-   
 
-heat_ko <- mags_ko_table %>%
-  tibble::column_to_rownames("genome_name") %>%
-  as.matrix()
-
-heat_cazy <- mags_cazy_table %>%
+heat <- mags_ko_table %>%
   tibble::column_to_rownames("genome_name") %>%
   as.matrix()
 
@@ -126,14 +125,10 @@ mags_tax <- mags_tax_file %>%
 
 ## we filter heat lines which are in mags_tax rownames
 
-heat_ko <- heat_ko %>%
+heat <- heat %>%
    data.frame(.) %>%
    filter(row.names(.) %in% rownames(mags_tax))
 
-
-heat_cazy <- heat_cazy %>%
-   data.frame(.) %>%
-   filter(row.names(.) %in% rownames(mags_tax))
 
 # the species
 species <- levels(factor(mags_tax$assigned_species))
@@ -148,10 +143,10 @@ for (one_species in species){
    
    mags_tax_filtered <- mags_tax %>% filter(assigned_species == one_species)
    
-   heat_ko_filtered <- heat_ko %>% filter(row.names(.) %in% rownames(mags_tax_filtered))
+   heat_filtered <- heat %>% filter(row.names(.) %in% rownames(mags_tax_filtered))
    
    
-   if(nrow(heat_ko_filtered) <10){
+   if(nrow(heat_filtered) <10){
       
       species <- species[!species %in% one_species]
       
@@ -192,18 +187,20 @@ names(annotation_colors$assigned_species) <- levels(factor(mags_tax$assigned_spe
 
 ## KO annotations : plot a mags per species
 
+
+
 for (one_species in species){
    
    mags_tax_filtered <- mags_tax %>% filter(assigned_species == one_species)
    
-   pheat <- pheatmap(heat_ko %>% filter(row.names(.) %in% rownames(mags_tax_filtered)),
+   pheat <- pheatmap(heat %>% filter(row.names(.) %in% rownames(mags_tax_filtered)),
                      cutree_rows = 9,
                      show_rownames = FALSE,
                      show_colnames = FALSE,
                      annotation_row = mags_tax_filtered %>%
                         select(disease, westernized, age_category),
                      annotation_colors = annotation_colors,
-                     main= paste0(one_species, " MAGS | ", functions_name, " annotations")
+                     main= paste0(one_species, " MAGS | ", functionality, " annotations")
                      )
 
    pheat
