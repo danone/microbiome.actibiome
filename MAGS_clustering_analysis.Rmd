@@ -1,0 +1,131 @@
+---
+title: "MAGS_clustering_analysis"
+author: "ruben"
+date: "29/04/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Librairies
+
+```{r,message=F,warning=F, echo = FALSE}
+
+library("dplyr")
+library(data.table)
+library(nortest)
+library(ade4)
+library(fpc)
+
+```
+
+## Import MAGS * eggnogs file
+
+```{r,message=F,warning=F, echo = FALSE}
+
+MAGS_eggnog <- fread("./MAGS_files/MAGS_eggnog.csv")
+
+```
+
+## Lower and upper filter
+
+```{r,message=F,warning=F, echo = FALSE}
+
+## filter genes that are common among MAGS before clustering
+## they are not significant for the clustering
+
+## first, calculate the prevalance of each eggnog among the MAGS
+
+MAGS_eggnog_prevalence <- MAGS_eggnog %>%
+  select(-1) %>%
+  summarise_all(., funs(mean(.>0))) %>%
+  t(.) %>%
+  data.frame(prevalence = .) %>%
+  rownames_to_column("eggnog")
+
+  
+anderson_test <- ad.test(MAGS_eggnog_prevalence$prevalence)
+
+if(anderson_test$p.value > 0.001){
+  ## if the test is not significant, prevalence are normally distributed
+  
+  print("Prevalence are normally distributed")
+  
+}else{
+  ## else, prevalence is not nrmally distributed
+  
+  print("Prevalence are NOT normally distributed")
+  
+}
+
+```
+
+## Lower and upper filter
+
+```{r,message=F,warning=F, echo = FALSE}
+
+## set a threshold
+
+threshold = 0.10
+
+# we exclude data with prevalence > and < threshold %
+
+test <- MAGS_eggnog_prevalence %>%
+  filter(prevalence > threshold & prevalence < 1 - threshold ) %>%
+  .$eggnog %>% as.character(.) -> eggnog_filtered
+
+```
+
+## Filter MAGS
+
+```{r,message=F,warning=F, echo = FALSE}
+
+MAGS_filtered <- MAGS_eggnog %>%
+  column_to_rownames("V1") %>%
+  select(eggnog_filtered) %>%
+  t %>%
+  data.frame(.)
+
+
+```
+
+
+## Clustering the MAGS
+
+```{r,message=F,warning=F, echo = FALSE}
+
+seed <- 1234
+
+rep <- "./MAGS_files/"
+file_name <- paste0(rep,"clusterboot")
+
+
+if(!file_name %in% list.files(rep)){
+
+  clusters_msp <- MAGS_filtered %>%
+    ade4::dist.binary(.,method=1) %>%
+    fpc::clusterboot(.,B=100,
+                     bootmethod="subset",
+                     clustermethod=fpc::pamkCBI,
+                     count=FALSE,
+                     k=1:6, showplot=FALSE,
+                     seed = seed)
+  
+  save()
+  
+}else{
+    
+  }
+
+```
+
+## Cluster results
+
+```{r,message=F,warning=F, echo = FALSE}
+
+cluster_results <- clusters_msp$result$partition %>%
+  data.frame(cluster = .)
+
+```
