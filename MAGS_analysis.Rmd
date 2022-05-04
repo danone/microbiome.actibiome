@@ -92,6 +92,37 @@ mags_tax_gene_id_eggnog %>%
 
 ```
 
+### prevalence viz
+
+
+```{r}
+
+prevalence_ko_species %>%
+   filter(assigned_species != "N/A") %>%
+   group_by(KEGG_ko) %>%
+   mutate(max=max(p), min=min(p)) %>%
+   ungroup() %>%
+   #filter(max>0.05, min < 0.20 ) %>%
+    reshape2::dcast(assigned_species~KEGG_ko, value.var = "p", fill=0) %>%
+   tibble::column_to_rownames("assigned_species") %>%
+   as.matrix() %>%
+   pheatmap::pheatmap(show_colnames = FALSE)
+
+
+prevalence_ko_species %>%
+   filter(assigned_species != "N/A") %>%
+   group_by(KEGG_ko) %>%
+   mutate(max=max(p), min=min(p)) %>%
+   ungroup() %>%
+   filter(max>0.05, min < 0.20 ) %>%
+    reshape2::dcast(assigned_species~KEGG_ko, value.var = "p", fill=0) %>%
+   tibble::column_to_rownames("assigned_species") %>%
+   as.matrix() %>%
+   pheatmap::pheatmap(show_colnames = FALSE)
+
+
+```
+
 
 
 
