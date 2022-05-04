@@ -32,15 +32,67 @@ source(file = "functions.R")
 load("curated_v3_otu_tax.rda")
 
 ## MAGS annotations data
-mags_tax_file = readr::read_tsv("MAGS_files/annotations_url_metadata_opendata.tsv") %>%
+mags_tax_file = readr::read_tsv("data-raw/bif_mags/Bifidobacterium_annotation/annotations_url_metadata_opendata.tsv") %>%
   filter(assigned_genus=="Bifidobacterium") %>%
   select(genome_name,study,sample_name,assigned_species,completeness, average_distance)
 
 # MAGS linked to other ID's
-mags_tax_gene_id_eggnog <- readr::read_csv2("MAGS_files/mags_tax_gene_id_eggnog.csv") %>%
+mags_tax_gene_id_eggnog <- readr::read_csv2("data-raw/bif_mags/mags_tax_gene_id_eggnog.csv") %>%
    select(-X1)
 
 ```
+
+
+## compute genes (eggnog,kegg,cazy) prevalence by species
+
+
+```{r}
+
+mags_tax_gene_id_eggnog %>% 
+   filter(completeness>0.80) %>%
+   select(genome_name, assigned_species) %>%
+   unique() %>%
+   group_by(assigned_species) %>%
+   summarise(n_genome = n()) -> prevalence_genomes_species
+
+mags_tax_gene_id_eggnog %>% 
+   filter(completeness>0.80) %>%
+   select(genome_name, assigned_species, KEGG_ko) %>%
+   filter(KEGG_ko != "-") %>%
+   unique() %>%
+   group_by(KEGG_ko,assigned_species) %>%
+   summarise(n_genes=n()) %>%
+   merge(prevalence_genomes_species, by="assigned_species") %>%
+   mutate(p=n_genes/n_genome)   -> prevalence_ko_species
+
+
+mags_tax_gene_id_eggnog %>% 
+   filter(completeness>0.80) %>%
+   select(genome_name, assigned_species, CAZy) %>%
+   filter(CAZy != "-") %>%
+   unique() %>%
+   group_by(CAZy,assigned_species) %>%
+   summarise(n_genes=n()) %>%
+   merge(prevalence_genomes_species, by="assigned_species") %>%
+   mutate(p=n_genes/n_genome)   -> prevalence_cazy_species
+   
+
+
+mags_tax_gene_id_eggnog %>% 
+   filter(completeness>0.80) %>%
+   select(genome_name, assigned_species, seed_ortholog) %>%
+   filter(seed_ortholog != "-") %>%
+   unique() %>%
+   group_by(seed_ortholog,assigned_species) %>%
+   summarise(n_genes=n()) %>%
+   merge(prevalence_genomes_species, by="assigned_species") %>%
+   mutate(p=n_genes/n_genome)   -> prevalence_eggnog_species
+
+
+
+```
+
+
 
 
 ## Choose the functionnality (Eggnog, Cazy, etc)
