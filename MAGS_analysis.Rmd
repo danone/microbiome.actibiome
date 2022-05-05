@@ -32,12 +32,12 @@ source(file = "functions.R")
 load("curated_v3_otu_tax.rda")
 
 ## MAGS annotations data
-mags_tax_file = readr::read_tsv("MAGS_files/annotations_url_metadata_opendata.tsv") %>%
+mags_tax_file = readr::read_tsv("data-raw/bif_mags/Bifidobacterium_annotation/annotations_url_metadata_opendata.tsv") %>%
   filter(assigned_genus=="Bifidobacterium") %>%
   select(genome_name,study,sample_name,assigned_species,completeness, average_distance)
 
 # MAGS linked to other ID's
-mags_tax_gene_id_eggnog <- readr::read_csv2("MAGS_files/mags_tax_gene_id_eggnog.csv") %>%
+mags_tax_gene_id_eggnog <- readr::read_csv2("data-raw/bif_mags/mags_tax_gene_id_eggnog.csv") %>%
    select(-X1)
 
 ## number of mags per species
@@ -64,6 +64,89 @@ ggplot(nb_mags_species, aes(x = assigned_species, y = n, fill = assigned_species
   labs( y = "number of MAGS", x = "", fill = "Bifidobacterium assigned species")
 
 ```
+
+## compute genes (eggnog,kegg,cazy) prevalence by species
+
+
+```{r}
+
+mags_tax_gene_id_eggnog %>% 
+   filter(completeness>0.80) %>%
+   select(genome_name, assigned_species) %>%
+   unique() %>%
+   group_by(assigned_species) %>%
+   summarise(n_genome = n()) -> prevalence_genomes_species
+
+mags_tax_gene_id_eggnog %>% 
+   filter(completeness>0.80) %>%
+   select(genome_name, assigned_species, KEGG_ko) %>%
+   filter(KEGG_ko != "-") %>%
+   unique() %>%
+   group_by(KEGG_ko,assigned_species) %>%
+   summarise(n_genes=n()) %>%
+   merge(prevalence_genomes_species, by="assigned_species") %>%
+   mutate(p=n_genes/n_genome)   -> prevalence_ko_species
+
+
+mags_tax_gene_id_eggnog %>% 
+   filter(completeness>0.80) %>%
+   select(genome_name, assigned_species, CAZy) %>%
+   filter(CAZy != "-") %>%
+   unique() %>%
+   group_by(CAZy,assigned_species) %>%
+   summarise(n_genes=n()) %>%
+   merge(prevalence_genomes_species, by="assigned_species") %>%
+   mutate(p=n_genes/n_genome)   -> prevalence_cazy_species
+   
+
+
+mags_tax_gene_id_eggnog %>% 
+   filter(completeness>0.80) %>%
+   select(genome_name, assigned_species, seed_ortholog) %>%
+   filter(seed_ortholog != "-") %>%
+   unique() %>%
+   group_by(seed_ortholog,assigned_species) %>%
+   summarise(n_genes=n()) %>%
+   merge(prevalence_genomes_species, by="assigned_species") %>%
+   mutate(p=n_genes/n_genome)   -> prevalence_eggnog_species
+
+
+
+```
+
+### prevalence viz
+
+
+```{r}
+
+prevalence_ko_species %>%
+   filter(assigned_species != "N/A") %>%
+   group_by(KEGG_ko) %>%
+   mutate(max=max(p), min=min(p)) %>%
+   ungroup() %>%
+   #filter(max>0.05, min < 0.20 ) %>%
+    reshape2::dcast(assigned_species~KEGG_ko, value.var = "p", fill=0) %>%
+   tibble::column_to_rownames("assigned_species") %>%
+   as.matrix() %>%
+   pheatmap::pheatmap(show_colnames = FALSE)
+
+
+prevalence_ko_species %>%
+   filter(assigned_species != "N/A") %>%
+   group_by(KEGG_ko) %>%
+   mutate(max=max(p), min=min(p)) %>%
+   ungroup() %>%
+   filter(max>0.05, min < 0.20 ) %>%
+    reshape2::dcast(assigned_species~KEGG_ko, value.var = "p", fill=0) %>%
+   tibble::column_to_rownames("assigned_species") %>%
+   as.matrix() %>%
+   pheatmap::pheatmap(show_colnames = FALSE)
+
+
+```
+
+
+
 
 ## Choose the functionnality (Eggnog, Cazy, etc)
 
@@ -352,6 +435,7 @@ if("cluster_results" %in% list.files(rep) & which_function == "eg"){
 }
 
 ```
+<<<<<<< HEAD
 
 
 ## Prepare heatmap of functions prevalence per species
@@ -394,3 +478,5 @@ pheatmap(mags_heatmap,
                      )
 
 ```
+=======
+>>>>>>> 26228d263328a3cfd38530d17f868fd4eb3fa545
