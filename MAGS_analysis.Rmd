@@ -40,16 +40,38 @@ mags_tax_file = readr::read_tsv("MAGS_files/annotations_url_metadata_opendata.ts
 mags_tax_gene_id_eggnog <- readr::read_csv2("MAGS_files/mags_tax_gene_id_eggnog.csv") %>%
    select(-X1)
 
+## number of mags per species
+
+nb_mags_species <- mags_tax_file %>%
+  data.frame(.) %>%
+  group_by(assigned_species) %>%
+  count() %>%
+  filter(!assigned_species %in% c("Bifidobacterium sp", "N/A"))
+nb_mags_species$assigned_species <- gsub("Bifidobacterium","B.",nb_mags_species$assigned_species)
+
 ```
 
+## Plot the number of mags per species of bifidobacterium
+
+```{r,message=F,warning=F, fig.height=7, fig.width = 12}
+
+ggplot(nb_mags_species, aes(x = assigned_species, y = n, fill = assigned_species)) +  # Plot with values on top
+  geom_bar(stat = "identity") +
+  #geom_bar(width = 1, stat = "identity", color = "white") +
+  #coord_polar("y", start = 0)+
+  geom_text(aes(label = n), vjust = 0) +
+  scale_x_discrete(guide = guide_axis(n.dodge=2)) +
+  labs( y = "number of MAGS", x = "", fill = "Bifidobacterium assigned species")
+
+```
 
 ## Choose the functionnality (Eggnog, Cazy, etc)
 
 ```{r,message=F,warning=F}
 
-which_function <- readline(prompt=paste("Which functions you want to plot ? : ", "Kegg-KO - ko", "Cazy - ca","", sep="\n"))
+which_function <- readline(prompt=paste("Which functions you want to plot ? : ", "Kegg-KO - ko", "Cazy - ca","EC - ec","Eggnog - eg","", sep="\n"))
 
-while(!which_function %in% c("ko", "ca")){
+while(!which_function %in% c("ko", "ca", "ec", "eg")){
   which_function <- readline(prompt=paste("Error, please redo : ", "Kegg-KO - ko", "Cazy - ca","", sep="\n"))
 }
 
@@ -58,10 +80,20 @@ if(which_function == "ko"){
   
   functionality <- "KEGG_ko"
   
-} else{
+} else if(which_function == "ca"){
   ## we keep only predict data
   
   functionality <- "CAZy"
+  
+}else if(which_function == "ec"){
+  ## we keep only predict data
+  
+  functionality <- "EC"
+  
+}else if(which_function == "eg"){
+  ## we keep only predict data
+  
+  functionality <- "seed_ortholog"
   
 }
 
@@ -74,9 +106,9 @@ if(which_function == "ko"){
 
 
 mags_ko_table <- mags_tax_gene_id_eggnog %>%
-   filter(completeness >= 90) %>%
-   filter((!!sym(functionality)) != "-") %>%
-   group_by_at(functionality) %>%
+  filter(completeness >= 80) %>%
+  filter((!!sym(functionality)) != "-") %>%
+  group_by_at(functionality) %>%
   mutate(ko_n=n()) %>%
    filter(ko_n>10) %>%
    ungroup() %>%
@@ -115,7 +147,7 @@ mags_tax <- mags_tax_file %>%
    merge(metadata, by.x = "sample_name", by.y = "sample_id") %>%
    tibble::column_to_rownames("genome_name") %>%
    filter(assigned_species != "N/A") %>%
-   filter(grepl("adolescentis|animalis|longum|bifidum|dentium|pseudocatenulatum|catenulatum", assigned_species))
+   filter(grepl("adolescentis|animalis|longum|bifidum|dentium|pseudocatenulatum|catenulatum|animalis", assigned_species))
 
 ```
 
@@ -181,29 +213,184 @@ names(annotation_colors$assigned_species) <- levels(factor(mags_tax$assigned_spe
 ```
 
 
+## If functions are eggnog, load the cluster file
+
+```{r,message=F,warning=F, fig.height=9, fig.width = 9}
+
+
+rep <- "./MAGS_files/"
+file_name <- "clusterboot"
+
+
+if(!file_name %in% list.files(rep)){
+  
+  print("please run MAGS_clustering_analysis.Rmd to print the eggnog clusters")
+  
+}else{
+  load(paste0(rep, file_name))
+}
+
+```
+
 ## Plotting one MAGS per species
 
 ```{r,message=F,warning=F, fig.height=9, fig.width = 9}
 
-## KO annotations : plot a mags per species
+## if the annotation is based on seed_ortholog, just print Eggnog in the plot
+
+if (which_function == 'eg'){
+  functionality <- "EGGnog"
+}
+
+## plot a mags per species
+
+if(which_function != "eg"){
+  
+  
+  for (one_species in species & which_function != "eg"){
+   
+    mags_tax_filtered <- mags_tax %>% filter(assigned_species == one_species)
+   
+    pheat <- pheatmap(heat %>% filter(row.names(.) %in% rownames(mags_tax_filtered)),
+                      #cutree_rows = 9,
+                      show_rownames = FALSE,
+                      show_colnames = FALSE,
+                      annotation_row = mags_tax_filtered %>%
+                        select(disease, westernized, age_category),
+                      annotation_colors = annotation_colors,
+                      main= paste0(one_species, " MAGS | ", functionality, " annotations")
+                      )
+
+    pheat
+    }
+
+  }
+
+```
+
+## Plot eggnogs only
+
+```{r,message=F,warning=F, fig.height=9, fig.width = 9}
+
+## define threshold to filter eggnog based on their prevalence
+
+threshold = 0.10
+
+## if clustering has been done, add a column panel showing clusters
+
+if("cluster_results" %in% list.files(rep) & which_function == "eg"){
+  
+  for (one_species in species){
+    
+    # for each species, select mags
+    mags_tax_filtered <- mags_tax %>% filter(assigned_species == one_species)
 
 
-
-for (one_species in species){
+    heat_filtered <-  heat %>%
+      filter(row.names(.) %in% rownames(mags_tax_filtered)) %>%
+      select(rownames(cluster_results))
+    
+    annot_col <- heat_filtered
+    rownames(annot_col) <- NULL
+    
+    annot_col <- annot_col %>%
+      summarise_all(., funs(mean(.>0))) %>%
+      t(.) %>%
+      data.frame(prevalence = .) %>%
+      rownames_to_column("eggnog")
+      
+    
+    ### which eggnog we delete ? based on a theshold of prevalence (% ?)
+    
+    eggnog_filtered <- MAGS_eggnog_prevalence %>%
+      filter(prevalence > threshold & prevalence < 1 - threshold ) %>%
+      .$eggnog %>% as.character(.)
+    
+    annot_filtered <- heat_filtered %>%
+      select(eggnog_filtered) %>%
+      t %>%
+      data.frame(.)
+    
+    
+      clusters_msp <- annot_filtered %>%
+        ## need to select the distinct row to calculate the dissimilarity date
+        distinct(.) %>%
+    ade4::dist.binary(.,method=1) %>%
+    fpc::clusterboot(.,B=100,
+                     bootmethod="subset",
+                     clustermethod=fpc::pamkCBI,
+                     count=FALSE,
+                     k=1:6, showplot=FALSE,
+                     seed = seed)
+      
+      
+      annot_final <- clusters_msp$result$partition %>%
+        data.frame(cluster = .)
+      annot_final$cluster <- as.character(annot_final$cluster)
+      
+                        
+    ### plot the phetmap
+    
+    
    
    mags_tax_filtered <- mags_tax %>% filter(assigned_species == one_species)
    
-   pheat <- pheatmap(heat %>% filter(row.names(.) %in% rownames(mags_tax_filtered)),
-                     cutree_rows = 9,
+   pheat <- pheatmap(heat_filtered,
+                     #cutree_rows = 9,
                      show_rownames = FALSE,
                      show_colnames = FALSE,
                      annotation_row = mags_tax_filtered %>%
                         select(disease, westernized, age_category),
                      annotation_colors = annotation_colors,
-                     main= paste0(one_species, " MAGS | ", functionality, " annotations")
+                     main= paste0(one_species, " MAGS | ", functionality, " annotations"),
+                     annotation_col = annot_final
                      )
 
    pheat
+  }
+  
 }
+
+```
+
+
+## Prepare heatmap of functions prevalence per species
+
+```{r,message=F,warning=F, fig.height=9, fig.width = 9}
+
+
+  
+mags_tax_filtered <- mags_tax %>%
+  rownames_to_column("genome_name") %>%
+  select(genome_name, assigned_species)
+  
+mags_function_table <- mags_ko_table %>%
+  filter(genome_name %in% mags_tax_filtered$genome_name) %>%
+  ## merge with mags_tax_filtered to have the completeness critera and assigned species
+  merge(mags_tax_filtered, by="genome_name") %>%
+  column_to_rownames("genome_name") %>%
+  ### al positive value become 1 for prevalennce count
+  mutate_at(vars(-("assigned_species")),funs(ifelse(.>0,1,.))) %>%
+  ## group_by species
+  group_by(assigned_species) %>%
+  summarise_all(., funs(sum(.)/n()))
+  
+  
+  
+
+```
+
+
+## Plot heatmap
+
+```{r,message=F,warning=F, fig.height=9, fig.width = 9}
+
+mags_heatmap <- mags_function_table %>%
+  column_to_rownames("assigned_species")
+
+pheatmap(mags_heatmap,
+                     #show_rownames = FALSE,
+                     show_colnames = FALSE,
+                     )
 
 ```

@@ -72,9 +72,9 @@ threshold = 0.10
 
 # we exclude data with prevalence > and < threshold %
 
-test <- MAGS_eggnog_prevalence %>%
+eggnog_filtered <- MAGS_eggnog_prevalence %>%
   filter(prevalence > threshold & prevalence < 1 - threshold ) %>%
-  .$eggnog %>% as.character(.) -> eggnog_filtered
+  .$eggnog %>% as.character(.)
 
 ```
 
@@ -99,7 +99,7 @@ MAGS_filtered <- MAGS_eggnog %>%
 seed <- 1234
 
 rep <- "./MAGS_files/"
-file_name <- paste0(rep,"clusterboot")
+file_name <- "clusterboot"
 
 
 if(!file_name %in% list.files(rep)){
@@ -113,10 +113,12 @@ if(!file_name %in% list.files(rep)){
                      k=1:6, showplot=FALSE,
                      seed = seed)
   
-  save()
+  save(clusters_msp, file=paste0(rep,file_name))
   
 }else{
-    
+  
+  load(paste0(rep,file_name))  
+  
   }
 
 ```
@@ -127,5 +129,7 @@ if(!file_name %in% list.files(rep)){
 
 cluster_results <- clusters_msp$result$partition %>%
   data.frame(cluster = .)
+
+save(cluster_results, file = paste0(rep, "cluster_results"))
 
 ```
