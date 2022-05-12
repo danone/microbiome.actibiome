@@ -360,7 +360,7 @@ signif <- complete_data_filtered %>%
 
 ## Plotting pheatmap
 
-```{r cars,fig.height=10, fig.width=10}
+```{r cars,fig.height=8, fig.width=8}
 
 pheatmap(pheat, display_numbers = signif)
 

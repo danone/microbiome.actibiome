@@ -92,13 +92,13 @@ if(which_study == "cur"){
   
   ## keep only adults subjects
   
-  pseq <- subset_samples(pseq, disease == "Control")
+  pseq <- subset_samples(pseq, age_category == "adult")
   
 } else if (which_study == "who"){
   
   ## keep only adults subjects
   
-  pseq <- subset_samples(pseq, disease == "Control")
+  pseq <- subset_samples(pseq, age_category == "adult")
   
 }
 ```
@@ -293,7 +293,7 @@ for (i in 1:5) {
   model_k[[i]] <- which(bic[[i]] == min(bic[[i]]))
 }
 
-index <- which(abs(as.data.frame(model_k) - 6) == min(abs(as.data.frame(model_k) - 6)) )
+index <- which(abs(as.data.frame(model_k) - k_BIC) == min(abs(as.data.frame(model_k) - k_BIC)) )
 
 ## the model 1 is the best fit model
 
@@ -421,41 +421,15 @@ no_bifid_ <- no_bifid %>%
 enterotype <- enterotype %>%
   rbind(., no_bifid_)
 
-write.csv(enterotype, file="enterotype_DMM_withnobifid", row.names=TRUE, col.names=TRUE, quote=FALSE)
+write.csv(enterotype, file="enterotype_DMM_adults", row.names=TRUE, col.names=TRUE, quote=FALSE)
 
-t <- fread("enterotype_DMM") %>%
-  column_to_rownames("V1")
+#t <- fread("enterotype_DMM") %>%
+#  column_to_rownames("V1")
 
 enterotype$bifidotype <- as.character(enterotype$bifidotype)
 
 ```
 
-## filtering after clustering
-
-```{r,message=F,warning=F}
-
-## predict = asnicar 2021
-
-## we remove other age categories, we only keep adults
-
-adults <- phy@sam_data %>%
-  data.frame(.) %>%
-  filter(age_category == "adult") %>%
-  rownames_to_column("sample_id") %>%
-  select(sample_id)
-
-asnicar <- phy@sam_data %>%
-  data.frame(.) %>%
-#  filter(PMID == 33432175) %>%
-  rownames_to_column("sample_id") %>%
-  select(sample_id)
-
-bifidotype <- enterotype %>%
-  filter(sample_id %in% adults$sample_id) #%>% filter(sample_id %in% asnicar$sample_id)
-
-
-
-```
 
 ## Clusters distributions
 
@@ -472,7 +446,8 @@ distribution$. <- as.character(distribution$.)
 ggplot(distribution, aes(x = ., y = Freq, fill = .)) +  # Plot with values on top
   geom_bar(stat = "identity") +
   geom_text(aes(label = Freq), vjust = 0) +
-  labs( y = "count")
+  labs( y = "count") +
+  scale_x_discrete(limits = as.character(1:max(distribution$.)))
 
 ```
 
@@ -564,21 +539,39 @@ sam_data <- phy_relative@sam_data %>%
 
 colnames(matrix_int) <- 1:(as.numeric(max(enterotype$bifidotype)) -1)
 
-top_5 <- matrix_int %>%
+top_5_ab <- matrix_int %>%
   data.frame(.)
-colnames(top_5) <- c( 1:(as.numeric(max(enterotype$bifidotype)) -1))
+colnames(top_5_ab) <- c( 1:(as.numeric(max(enterotype$bifidotype)) -1))
 
-top_5 <- top_5 %>%
+rownames(top_5_ab) = gsub("B.", "Bifidobacterium", rownames(top_5_ab))
+
+## we select the commensal + animaliss species
+
+species_to_select <- c("Bifidobacterium  animalis","Bifidobacterium  adolescentis","Bifidobacterium  pseudocatenulatum","Bifidobacterium  dentium","Bifidobacterium  longum","Bifidobacterium  bifidum","Bifidobacterium  catenulatum","Bifidobacterium  angulatum")
+
+data_sorted <- top_5_ab %>%
+  rownames_to_column('species') %>%
+  gather(key="cluster", value="value", 2:(ncol(matrix_int)+1)) %>%
+  select(-value) %>%
+  rename('bifidotype' = 'cluster') %>%
+  filter(species %in% species_to_select)
+
+data_sorted$species <- str_squish(data_sorted$species)
+
+  ## option where we select the top 5 abundant species per cluster
+top_5 <- top_5_ab %>%
   rownames_to_column('species') %>%
   gather(key="cluster", value="value", 2:(ncol(matrix_int)+1)) %>%
   group_by(cluster) %>%
   top_n(5, value) %>%
   select(-value) %>%
   rename('bifidotype' = 'cluster')
-top_5$species = gsub("B.", "Bifidobacterium", top_5$species)
 top_5$bifidotype = gsub("cluster", "", top_5$bifidotype)
 ## remove multiple spaces
 top_5$species <- str_squish(top_5$species)
+
+
+## second way it to select all the commensal + animalis species
 
 ```
 
@@ -608,6 +601,18 @@ otu_most <- otu_most %>%
   filter(!is.na(bifidotype)) %>%
   gather(key="species", value="abundance", 2:33)
   
+
+```
+
+## search for the mean abundance of each species by cluster
+
+```{r,message=F,warning=F}
+
+data_sorted_abundance <- data_sorted %>%
+  left_join(., otu_most, by = c("species", "bifidotype")) %>%
+  filter(!is.na(abundance)) %>%
+  select(-sample_id)
+
 top_5_abundance <- top_5 %>%
   left_join(., otu_most, by = c("species", "bifidotype")) %>%
   filter(!is.na(abundance)) %>%
@@ -617,42 +622,99 @@ test <- top_5_abundance %>%
   group_by(bifidotype, species) %>%
   summarise(abundance = sum(abundance))
 
-```
+top_5_abundance$species <- gsub("Bifidobacterium", "B.", top_5_abundance$species)
 
-## search for the mean abundance of each species by cluster
+data_sorted_abundance$species <- gsub("Bifidobacterium", "B.", data_sorted_abundance$species)
 
-```{r,message=F,warning=F}
+## change top_5 to lopg value, and a pseudo count of 10-6
 
+
+top_5_abundance$abundance <- log10(top_5_abundance$abundance + 10^(-6))
+
+data_sorted_abundance$abundance <- log10(data_sorted_abundance$abundance + 10^(-6))
 
 p <- ggplot(top_5_abundance, aes(x = bifidotype,
                        y = abundance, fill = factor(species))) +
   geom_boxplot(outlier.shape = NA) +
   theme_minimal() +
-  labs(fill= "bifidotype") +
-  coord_cartesian(ylim = c(0, 0.25))
+  labs(fill= "Bifidobacterium species") #+
+ # coord_cartesian(ylim = c(0, 0.25))
   
 p
 
+```
+
+## ggplot
+
+```{r,message=F,warning=F}
+
+p <- ggplot(top_5_abundance, aes(x = species,
+                       y = abundance, fill = species)) +
+  geom_boxplot(outlier.shape = NA) +
+  theme_minimal() +
+  theme(axis.title.x = element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) +
+  labs(fill= "Bifidobacterium species",) +
+  #scale_x_discrete(guide = guide_axis(n.dodge=3)) +
+  facet_wrap(~bifidotype)
+  
+ # coord_cartesian(ylim = c(0, 0.25))
+  
+p
+
+
+```
+## ggplot
+
+```{r,message=F,warning=F}
+
+p <- ggplot(data_sorted_abundance, aes(x = bifidotype,
+                       y = abundance, fill = bifidotype)) +
+  #geom_boxplot() +
+  geom_boxplot(outlier.shape = NA) +
+  theme_minimal() +
+  labs(fill= "Bifidotype", x="", y=expression(paste("log"[10],"(Abundance)"))) +
+  facet_wrap(~species)
+  
+ # coord_cartesian(ylim = c(0, 0.25))
+  
+p
+
+
+p <- ggplot(top_5_abundance, aes(x = bifidotype,
+                       y = abundance, fill = bifidotype)) +
+  geom_boxplot() +
+  #geom_boxplot(outlier.shape = NA) +
+  theme_minimal() +
+  labs(fill= "Bifidotype", x="", y=expression(paste("log"[10],"(Abundance)"))) +
+  facet_wrap(~species)
+  
+ # coord_cartesian(ylim = c(0, 0.25))
+  
+p
+
+## facet_wrap par espèce
+## et utiliser scale = free-Y
 ```
 
 ## Heatmaps
 
 ```{r,message=F,warning=F}
 
+sam_data$bifidotype <- as.character(sam_data$bifidotype)
 
 p  <- ggplot(sam_data, aes(x = bifidotype,
-                       y = bif_rel, fill=bifidotype))
+                       y = bif_rel, fill=bifidotype))+ geom_boxplot(outlier.shape = NA) 
   
-p <- p + geom_boxplot(outlier.shape = NA) +
-  
-  theme_minimal() +
-  
+p <- 
   labs(x = NULL, y = NULL, title = "Relative Abundance of Bifidobacterium",fill= "Cluster") + 
-  coord_cartesian(ylim=c(0,0.3)) +
+  #coord_cartesian(ylim=c(0,0.3)) +
   scale_x_discrete(limits = as.character(1:max(sam_data$bifidotype))) +
   stat_compare_means(label.y = 0.64, label.x ="3") +
-  stat_compare_means(label = "p.signif", method = "wilcox", ref.group = "1", label.y = 0.6) +
-  coord_cartesian(ylim = c(0, 0.64))
+  stat_compare_means(label = "p.signif", method = "wilcox", ref.group = "1", label.y = 0.6)# +
+theme_minimal() +
+  #coord_cartesian(ylim = c(0, 0.64))
   
 
 p
@@ -809,6 +871,8 @@ corrplot(test_chisq_whole$residuals, is.cor = FALSE)
 ```{r,message=F,warning=F}
 
 library(readxl)
+
+
 
 ## we select the "control", which are "healthy" in the database :
 

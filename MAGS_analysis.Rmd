@@ -25,28 +25,33 @@ source(file = "functions.R")
 
 ```
 
-## Données
+## import data
 
 ```{r,message=F,warning=F}
 
 load("curated_v3_otu_tax.rda")
 
-## MAGS annotations data
+setwd("/home/tapju/storage/actibiome")
+
+## MAGS annotations data, containing completeness, average distance according to a reference genome, etc
 mags_tax_file = readr::read_tsv("data-raw/bif_mags/Bifidobacterium_annotation/annotations_url_metadata_opendata.tsv") %>%
   filter(assigned_genus=="Bifidobacterium") %>%
   select(genome_name,study,sample_name,assigned_species,completeness, average_distance)
 
-# MAGS linked to other ID's
+
+## MAGS linked to functions ID's
 mags_tax_gene_id_eggnog <- readr::read_csv2("data-raw/bif_mags/mags_tax_gene_id_eggnog.csv") %>%
-   select(-X1)
+   select(-X1) %>%
+  ## filter the species of interest
+   filter(grepl("adolescentis|animalis| longum|bifidum|dentium|pseudocatenulatum|catenulatum|animalis", assigned_species))
 
 ## number of mags per species
 
 nb_mags_species <- mags_tax_file %>%
   data.frame(.) %>%
   group_by(assigned_species) %>%
-  count() %>%
-  filter(!assigned_species %in% c("Bifidobacterium sp", "N/A"))
+  summarise(n=n()) %>%
+  filter(grepl("adolescentis|animalis| longum|bifidum|dentium|pseudocatenulatum|catenulatum|animalis", assigned_species))
 nb_mags_species$assigned_species <- gsub("Bifidobacterium","B.",nb_mags_species$assigned_species)
 
 ```
@@ -57,25 +62,59 @@ nb_mags_species$assigned_species <- gsub("Bifidobacterium","B.",nb_mags_species$
 
 ggplot(nb_mags_species, aes(x = assigned_species, y = n, fill = assigned_species)) +  # Plot with values on top
   geom_bar(stat = "identity") +
-  #geom_bar(width = 1, stat = "identity", color = "white") +
-  #coord_polar("y", start = 0)+
   geom_text(aes(label = n), vjust = 0) +
   scale_x_discrete(guide = guide_axis(n.dodge=2)) +
   labs( y = "number of MAGS", x = "", fill = "Bifidobacterium assigned species")
 
 ```
 
-## compute genes (eggnog,kegg,cazy) prevalence by species
+## Choose the functionnality (Eggnog, Cazy, etc) to plot
+
+```{r,message=F,warning=F}
+
+which_function <- readline(prompt=paste("Which functions you want to plot ? : ", "Kegg-KO - ko", "Cazy - ca","genome - ge","Eggnog - eg","", sep="\n"))
+
+while(!which_function %in% c("ko", "ca", "gen", "eg")){
+  which_function <- readline(prompt=paste("Error, please redo : ", "Kegg-KO - ko", "Cazy - ca","genome - gen","Eggnog - eg", "" , sep="\n"))
+}
+
+if(which_function == "ko"){
+  ## we exclude predict data
+  
+  functionality <- "KEGG_ko"
+  
+} else if(which_function == "ca"){
+  ## we keep only predict data
+  
+  functionality <- "CAZy"
+  
+}else if(which_function == "gen"){
+  ## we keep only predict data
+  
+  functionality <- "genome_name"
+  
+}else if(which_function == "eg"){
+  ## we keep only predict data
+  
+  functionality <- "eggNOG_OGs"
+  
+}
+
+
+```
+
+
+## compute genes (eggnog,kegg,cazy,genome) prevalence by species
 
 
 ```{r}
 
-mags_tax_gene_id_eggnog %>% 
-   filter(completeness>0.80) %>%
-   select(genome_name, assigned_species) %>%
-   unique() %>%
-   group_by(assigned_species) %>%
-   summarise(n_genome = n()) -> prevalence_genomes_species
+#mags_tax_gene_id_eggnog %>% 
+#   filter(completeness>0.80) %>%
+#   select(genome_name, assigned_species) %>%
+#   unique() %>%
+#   group_by(assigned_species) %>%
+#   summarise(n_genome = n()) -> prevalence_genomes_species
 
 mags_tax_gene_id_eggnog %>% 
    filter(completeness>0.80) %>%
@@ -102,10 +141,10 @@ mags_tax_gene_id_eggnog %>%
 
 mags_tax_gene_id_eggnog %>% 
    filter(completeness>0.80) %>%
-   select(genome_name, assigned_species, seed_ortholog) %>%
-   filter(seed_ortholog != "-") %>%
+   select(genome_name, assigned_species, eggNOG_OGs) %>%
+   filter(eggNOG_OGs != "-") %>%
    unique() %>%
-   group_by(seed_ortholog,assigned_species) %>%
+   group_by(eggNOG_OGs,assigned_species) %>%
    summarise(n_genes=n()) %>%
    merge(prevalence_genomes_species, by="assigned_species") %>%
    mutate(p=n_genes/n_genome)   -> prevalence_eggnog_species
@@ -117,20 +156,10 @@ mags_tax_gene_id_eggnog %>%
 ### prevalence viz
 
 
-```{r}
-
-prevalence_ko_species %>%
-   filter(assigned_species != "N/A") %>%
-   group_by(KEGG_ko) %>%
-   mutate(max=max(p), min=min(p)) %>%
-   ungroup() %>%
-   #filter(max>0.05, min < 0.20 ) %>%
-    reshape2::dcast(assigned_species~KEGG_ko, value.var = "p", fill=0) %>%
-   tibble::column_to_rownames("assigned_species") %>%
-   as.matrix() %>%
-   pheatmap::pheatmap(show_colnames = FALSE)
+```{r, fig.height=4, fig.width = 6}
 
 
+## plot KO functions
 prevalence_ko_species %>%
    filter(assigned_species != "N/A") %>%
    group_by(KEGG_ko) %>%
@@ -140,47 +169,64 @@ prevalence_ko_species %>%
     reshape2::dcast(assigned_species~KEGG_ko, value.var = "p", fill=0) %>%
    tibble::column_to_rownames("assigned_species") %>%
    as.matrix() %>%
-   pheatmap::pheatmap(show_colnames = FALSE)
+   pheatmap::pheatmap(show_colnames = FALSE, main = "KEGG_ko annotations")
+
+
+## plot genomes
+prevalence_cazy_species %>%
+   filter(assigned_species != "N/A") %>%
+   group_by(CAZy) %>%
+   mutate(max=max(p), min=min(p)) %>%
+   ungroup() %>%
+   filter(max>0.05, min < 0.20 ) %>%
+    reshape2::dcast(assigned_species~CAZy, value.var = "p", fill=0) %>%
+   tibble::column_to_rownames("assigned_species") %>%
+   as.matrix() %>%
+   pheatmap::pheatmap(show_colnames = FALSE, main = "CAZy annotations")
+
+## plot eggnog functions
+prevalence_eggnog_species %>%
+   filter(assigned_species != "N/A") %>%
+   group_by(eggNOG_OGs) %>%
+   mutate(max=max(p), min=min(p)) %>%
+   ungroup() %>%
+   filter(max>0.05, min < 0.20 ) %>%
+    reshape2::dcast(assigned_species~eggNOG_OGs, value.var = "p", fill=0) %>%
+   tibble::column_to_rownames("assigned_species") %>%
+   as.matrix() %>%
+   pheatmap::pheatmap(show_colnames = FALSE, main = "eggnog annotations")
+
+## plot eggnog functions
+prevalence_eggnog_species %>%
+   filter(assigned_species != "N/A") %>%
+   group_by(eggNOG_OGs) %>%
+   mutate(max=max(p), min=min(p)) %>%
+   ungroup() %>%
+   #filter(max>0.05, min < 0.20 ) %>%
+    reshape2::dcast(assigned_species~eggNOG_OGs, value.var = "p", fill=0) %>%
+   tibble::column_to_rownames("assigned_species") %>%
+   as.matrix() %>%
+   pheatmap::pheatmap(show_colnames = FALSE, main = "eggnog annotations")
+  
+
 
 
 ```
 
+## Prepare plot
 
-
-
-## Choose the functionnality (Eggnog, Cazy, etc)
-
-```{r,message=F,warning=F}
-
-which_function <- readline(prompt=paste("Which functions you want to plot ? : ", "Kegg-KO - ko", "Cazy - ca","EC - ec","Eggnog - eg","", sep="\n"))
-
-while(!which_function %in% c("ko", "ca", "ec", "eg")){
-  which_function <- readline(prompt=paste("Error, please redo : ", "Kegg-KO - ko", "Cazy - ca","", sep="\n"))
-}
-
-if(which_function == "ko"){
-  ## we exclude predict data
-  
-  functionality <- "KEGG_ko"
-  
-} else if(which_function == "ca"){
-  ## we keep only predict data
-  
-  functionality <- "CAZy"
-  
-}else if(which_function == "ec"){
-  ## we keep only predict data
-  
-  functionality <- "EC"
-  
-}else if(which_function == "eg"){
-  ## we keep only predict data
-  
-  functionality <- "seed_ortholog"
-  
-}
-
-
+```{r,message=F,warning=F, fig.height=4, fig.width = 15}
+## plot eggnog functions
+prevalence_eggnog_species %>%
+   filter(assigned_species != "N/A") %>%
+   group_by(eggNOG_OGs) %>%
+   mutate(max=max(p), min=min(p)) %>%
+   ungroup() %>%
+   #filter(max>0.05, min < 0.20 ) %>%
+    reshape2::dcast(assigned_species~eggNOG_OGs, value.var = "p", fill=0) %>%
+   tibble::column_to_rownames("assigned_species") %>%
+   as.matrix() %>%
+   pheatmap::pheatmap(show_colnames = FALSE, main = "eggnog annotations")
 ```
 
 ## Prepare plot
@@ -206,6 +252,8 @@ heat <- mags_ko_table %>%
   tibble::column_to_rownames("genome_name") %>%
   as.matrix()
 
+eggnog_true_name <- colnames(heat)
+
 ```
 
 ## filter heatmap/add metadata
@@ -230,7 +278,7 @@ mags_tax <- mags_tax_file %>%
    merge(metadata, by.x = "sample_name", by.y = "sample_id") %>%
    tibble::column_to_rownames("genome_name") %>%
    filter(assigned_species != "N/A") %>%
-   filter(grepl("adolescentis|animalis|longum|bifidum|dentium|pseudocatenulatum|catenulatum|animalis", assigned_species))
+   filter(grepl("adolescentis|animalis| longum|bifidum|pseudocatenulatum|catenulatum|animalis", assigned_species))
 
 ```
 
@@ -243,7 +291,7 @@ mags_tax <- mags_tax_file %>%
 heat <- heat %>%
    data.frame(.) %>%
    filter(row.names(.) %in% rownames(mags_tax))
-
+colnames(heat) <- eggnog_true_name 
 
 # the species
 species <- levels(factor(mags_tax$assigned_species))
@@ -315,6 +363,30 @@ if(!file_name %in% list.files(rep)){
 
 ```
 
+## Annotation bifidotypes
+
+```{r,message=F,warning=F, fig.height=9, fig.width = 9}
+
+bifido <- fread("enterotype_DMM") %>%
+   select(-V1)
+
+mags_tax_with_bifidotypes <- mags_tax %>%
+  rownames_to_column("MAGS") %>%
+  merge(bifido, by.x = "sample_name", by.y = "sample_id") %>%
+  column_to_rownames("MAGS")
+
+mags_tax_with_bifidotypes$bifidotype <- as.character(mags_tax_with_bifidotypes$bifidotype)
+
+### group bifidotypes by "bad" & "good" bifidotypes
+
+mags_tax_with_binary_bifidotypes <- mags_tax_with_bifidotypes %>%
+  mutate(bifid_grp = case_when(
+    bifidotype %in% c(1,2,6) ~ "healthy",
+    TRUE ~ "unhealthy"
+    ))
+
+```
+
 ## Plotting one MAGS per species
 
 ```{r,message=F,warning=F, fig.height=9, fig.width = 9}
@@ -327,13 +399,111 @@ if (which_function == 'eg'){
 
 ## plot a mags per species
 
-if(which_function != "eg"){
+decis = TRUE
+
+if(decis){
   
   
-  for (one_species in species & which_function != "eg"){
+  for (one_species in species){
    
-    mags_tax_filtered <- mags_tax %>% filter(assigned_species == one_species)
+    mags_tax_filtered <- mags_tax_with_bifidotypes %>% filter(assigned_species == one_species)
+    
+    print(one_species)
    
+    pheat <- pheatmap(heat %>% filter(row.names(.) %in% rownames(mags_tax_filtered)),
+                      #cutree_rows = 9,
+                      show_rownames = FALSE,
+                      show_colnames = FALSE,
+                      #annotation_row = mags_tax_filtered %>%
+                        #select(bifidotype),
+                        #select(disease, westernized, age_category),
+                      annotation_row = mags_tax_with_binary_bifidotypes %>%
+                        select(bifid_grp),
+                        #select(disease, westernized, age_category),
+                      annotation_colors = annotation_colors,
+                      main= paste0(one_species, " MAGS | ", functionality, " annotations")
+                      )
+
+    pheat
+    }
+
+  }
+
+```
+
+
+## Plotting MAGS with all species
+
+```{r,message=F,warning=F, fig.height=9, fig.width = 9}
+
+one_species <- "Bifidobacterium adolescentis"
+
+    mags_tax_filtered <- mags_tax_with_bifidotypes %>% filter(assigned_species == one_species)
+    
+heat_bifid <- heat %>% filter(row.names(.) %in% rownames(mags_tax_filtered))
+
+prevalences <- heat_bifid %>%
+  data.frame(.) %>%
+  summarise_all(., funs(sum(.)/n())) %>%
+  t %>%
+  data.frame(p = .)
+
+rownames(prevalences)<- colnames(heat_bifid)
+
+eggnog_to_filter <- prevalences %>%
+  filter(p > 0.20 & p < 0.80)
+
+## filter the eggnog with highest prevalence and lowest prev
+
+
+    
+pheat <- pheatmap(heat_bifid %>% select(rownames(eggnog_to_filter)),
+                  #cutree_rows = 9,
+                  show_rownames = FALSE,
+                  show_colnames = FALSE,
+                  annotation_row = mags_tax_with_binary_bifidotypes %>%
+                        select(bifid_grp),
+                  annotation_colors = annotation_colors,
+                  main= paste0(one_species, " MAGS | ", functionality, " annotations")
+                  )
+
+pheat
+
+```
+
+## check depleted functions
+
+```{r,message=F,warning=F, fig.height=9, fig.width = 9}
+test_match_order <- function(x,y) {
+
+if (all(x==y)) print('Perfect match in same order')
+
+if (!all(x==y) && all(sort(x)==sort(y))) print('Perfect match in wrong order')
+
+if (!all(x==y) && !all(sort(x)==sort(y))) print('No match')
+}
+
+
+eggnogs_df <- colnames(heat %>% filter(row.names(.) %in% rownames(mags_tax_filtered)))
+
+eggnogs <- pheat$tree_col$labels
+
+test_match_order(eggnogs_df,eggnogs)
+
+
+## order in heatmap
+
+order_eggnog <- pheat$tree_col$order
+
+eggnogs_ordered <- eggnogs[order_eggnog]
+
+
+```
+
+## Plot eggnogs only
+
+```{r,message=F,warning=F, fig.height=9, fig.width = 9}
+
     pheat <- pheatmap(heat %>% filter(row.names(.) %in% rownames(mags_tax_filtered)),
                       #cutree_rows = 9,
                       show_rownames = FALSE,
@@ -345,10 +515,8 @@ if(which_function != "eg"){
                       )
 
     pheat
-    }
-
-  }
-
+    
+    
 ```
 
 ## Plot eggnogs only
@@ -361,6 +529,8 @@ threshold = 0.10
 
 ## if clustering has been done, add a column panel showing clusters
 
+load("./MAGS_files/cluster_results")
+
 if("cluster_results" %in% list.files(rep) & which_function == "eg"){
   
   for (one_species in species){
@@ -370,8 +540,8 @@ if("cluster_results" %in% list.files(rep) & which_function == "eg"){
 
 
     heat_filtered <-  heat %>%
-      filter(row.names(.) %in% rownames(mags_tax_filtered)) %>%
-      select(rownames(cluster_results))
+      filter(row.names(.) %in% rownames(mags_tax_filtered)) #%>%
+      #select(contains(rownames(cluster_results)))
     
     annot_col <- heat_filtered
     rownames(annot_col) <- NULL
@@ -385,16 +555,16 @@ if("cluster_results" %in% list.files(rep) & which_function == "eg"){
     
     ### which eggnog we delete ? based on a theshold of prevalence (% ?)
     
-    eggnog_filtered <- MAGS_eggnog_prevalence %>%
+    eggnog_filtered <- annot_col %>%
       filter(prevalence > threshold & prevalence < 1 - threshold ) %>%
       .$eggnog %>% as.character(.)
     
+    ## annot_filtered contains the functions to filter for maping
     annot_filtered <- heat_filtered %>%
       select(eggnog_filtered) %>%
-      t %>%
       data.frame(.)
     
-    
+    ## cluster sur les mags ! pour annoter les MAGS
       clusters_msp <- annot_filtered %>%
         ## need to select the distinct row to calculate the dissimilarity date
         distinct(.) %>%
@@ -418,7 +588,7 @@ if("cluster_results" %in% list.files(rep) & which_function == "eg"){
    
    mags_tax_filtered <- mags_tax %>% filter(assigned_species == one_species)
    
-   pheat <- pheatmap(heat_filtered,
+   pheat <- pheatmap(c,
                      #cutree_rows = 9,
                      show_rownames = FALSE,
                      show_colnames = FALSE,
@@ -435,48 +605,159 @@ if("cluster_results" %in% list.files(rep) & which_function == "eg"){
 }
 
 ```
-<<<<<<< HEAD
 
-
-## Prepare heatmap of functions prevalence per species
+## Plot eggnogs only
 
 ```{r,message=F,warning=F, fig.height=9, fig.width = 9}
 
+metadata <- metadata
 
-  
-mags_tax_filtered <- mags_tax %>%
-  rownames_to_column("genome_name") %>%
-  select(genome_name, assigned_species)
-  
-mags_function_table <- mags_ko_table %>%
-  filter(genome_name %in% mags_tax_filtered$genome_name) %>%
-  ## merge with mags_tax_filtered to have the completeness critera and assigned species
-  merge(mags_tax_filtered, by="genome_name") %>%
-  column_to_rownames("genome_name") %>%
-  ### al positive value become 1 for prevalennce count
-  mutate_at(vars(-("assigned_species")),funs(ifelse(.>0,1,.))) %>%
-  ## group_by species
-  group_by(assigned_species) %>%
-  summarise_all(., funs(sum(.)/n()))
-  
-  
-  
+setwd("/home/ladeirru/GitHub/microbiome.actibiome")
+bifido <- fread("enterotype_DMM") %>%
+   select(-V1) %>%
+   merge(metadata, by="sample_id") %>%
+   mutate(grp = case_when(
+    bifidotype %in% c(1,2,6) ~ "healthy",
+    TRUE ~ "unhealthy"
+  )) 
+
+bifido_count <- bifido %>%
+  select(disease, BMI, bifidotype, age_category, grp)  %>%
+     mutate(disease = case_when(
+    disease %in% c('Adenoma', "Colorectal", "Metabolic",  "Bowel", "Arthritis", "BD") ~ "unhealthy",
+    TRUE ~ "healthy"
+  )) %>%
+   #group_by(grp) %>%
+   dplyr::count(grp, disease) %>%
+   group_by(disease) %>%
+   mutate(
+    perc = round(n/sum(n), 3)
+  )
+
+
+view(bifido)
 
 ```
 
 
-## Plot heatmap
+## chi2 test to identify functions differentially associated
 
 ```{r,message=F,warning=F, fig.height=9, fig.width = 9}
 
-mags_heatmap <- mags_function_table %>%
-  column_to_rownames("assigned_species")
+one_species <- "Bifidobacterium bifidum"
+    
+    # for each species, select mags
+    mags_tax_filtered <- mags_tax %>% filter(assigned_species == one_species) %>%
+      rownames_to_column("MAGS") %>%
+      merge(bifido %>% select(sample_id, grp), by.x = "sample_name", by.y="sample_id") %>%
+      column_to_rownames("MAGS") %>%
+      filter(assigned_species == one_species)
 
-pheatmap(mags_heatmap,
-                     #show_rownames = FALSE,
+
+    heat_filtered <-  heat %>%
+      filter(row.names(.) %in% rownames(mags_tax_filtered))
+    
+    annot_col <- heat_filtered
+    rownames(annot_col) <- NULL
+    
+    annot_col <- annot_col %>%
+      summarise_all(., funs(mean(.>0))) %>%
+      t(.) %>%
+      data.frame(prevalence = .) %>%
+      rownames_to_column("eggnog")
+      
+    
+    ### which eggnog we delete ? based on a theshold of prevalence (% ?)
+    
+    eggnog_filtered <- annot_col %>%
+      filter(prevalence > threshold & prevalence < 1 - threshold ) %>%
+      .$eggnog %>% as.character(.)
+    
+    ## annot_filtered contains the functions to filter for maping
+    annot_filtered <- heat_filtered %>%
+      select(eggnog_filtered) %>%
+      data.frame(.)
+      
+                        
+    ### plot the phetmap
+    
+   
+   pheat <- pheatmap(heat_filtered,
+                     #cutree_rows = 9,
+                     show_rownames = FALSE,
                      show_colnames = FALSE,
+                     annotation_row = mags_tax_filtered %>%
+                        select(grp),
+                     annotation_colors = annotation_colors,
+                     main= paste0(one_species, " MAGS | ", functionality, " annotations")
                      )
+   
+pheat
 
 ```
-=======
->>>>>>> 26228d263328a3cfd38530d17f868fd4eb3fa545
+
+## chi2 test to identify functions differentially associated
+
+```{r,message=F,warning=F, fig.height=9, fig.width = 9}
+
+heat_evaluate_chi <- heat_filtered
+heat_evaluate_chi[heat_evaluate_chi >1] <- "present"
+heat_evaluate_chi[heat_evaluate_chi <1] <- "absent"
+
+heat_evaluate_chi_gathered <- heat_evaluate_chi %>%
+  rownames_to_column("MAGS") %>%
+  merge(mags_tax_filtered %>%
+          select(grp) %>%
+          rownames_to_column("MAGS"),
+        by = "MAGS") %>%
+  select(-"MAGS") %>%
+  gather("eggnog", "presence", -c("grp")) %>%
+  ## eggnog with only healthy or non healthy mist me deleted
+  filter(eggnog %in% eggnog_filtered)
+
+
+heat_evaluate_chi_p <- heat_evaluate_chi_gathered %>%
+  ## do one chi square test per eggnog
+  group_by(eggnog) %>%
+  nest() %>% 
+  mutate(
+    chi_test = map(data, ~ chisq.test(.$grp, .$presence)),
+    tidied = map(chi_test, tidy)
+  ) %>% 
+  unnest(tidied)
+
+### how many significant eggnogs have been found ?
+
+eggnog_significant <- heat_evaluate_chi_p %>%
+  filter(p.value < 0.01)
+
+## 85 out of 531 eggnogs have been found significant
+
+```
+
+## chi2 test to identify functions differentially associated
+
+```{r,message=F,warning=F, fig.height=9, fig.width = 9}
+library(broom)
+library(tidyverse)
+
+df <- data.frame(
+  stringsAsFactors = FALSE,
+        department = c("x", "y", "y", "y", "x", "z", "z", "x", "z"),
+            gender = c("Male","Female","Male",
+                       "Male","Female","Female","Male","Male","Female"),
+              pass = c(1L, 1L, 0L, 1L, 1L, 0L, 1L, 0L, 0L)
+)
+
+
+df_nested <- df %>%
+  group_by(department) %>%
+  nest() %>% 
+  mutate(
+    chi_test = map(data, ~ chisq.test(.$gender, .$pass)),
+    tidied = map(chi_test, tidy)
+  ) %>% 
+  unnest(tidied)
+
+
+```
