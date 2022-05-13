@@ -45,7 +45,7 @@ if(!(name %in% list.files())) {
 
 ## we will merge the bifidotype to the meta_data
 
-bifidotypes <- fread('enterotype_DMM') %>%
+bifidotypes <- fread('enterotype_DMM_adult_subjects') %>%
   select(sample_id, bifidotype)
 
 metadata <- data.frame(sample_data(phy)) %>%
@@ -220,6 +220,8 @@ if(!(name_FC %in% list.files())) {
   
   save(output_FDR, file = name_FDR)
   
+  save(output_baseMean, file = name_baseMean)
+  
 } else {
   load(name_FC)
   load(name_FDR)
@@ -228,9 +230,9 @@ if(!(name_FC %in% list.files())) {
 
 data_logFC <- output_LogFC
 
-name_FDR <- output_FDR
+data_FDR <- output_FDR
 
-data_baseMean <- data_logFC
+data_baseMean <- output_baseMean
 
 ```
 
@@ -240,9 +242,9 @@ data_baseMean <- data_logFC
 
 rownames(data_logFC) <- get_species(tax, rownames(data.frame(data_logFC)))
 
-rownames(name_FDR) <- get_species(tax, rownames(data.frame(name_FDR)))
+rownames(data_FDR) <- get_species(tax, rownames(data.frame(data_FDR)))
 
-rownames(output_baseMean) <- get_species(tax, rownames(data.frame(output_baseMean)))
+rownames(data_baseMean) <- get_species(tax, rownames(data.frame(data_baseMean)))
 
 ```
 
@@ -256,7 +258,7 @@ melted_data_logFC <- melt(data_logFC)
 colnames(melted_data_logFC)[3] <- "Log2FC"
 
 # -log10(FDR)
-data_adj_pval <- -log10(name_FDR)
+data_adj_pval <- -log10(data_FDR)
 melted_data_adj_pval <- melt(data_adj_pval)
 melted_data_adj_pval$color <- 0
 
@@ -290,7 +292,7 @@ complete_data <- complete_data %>%
 
 ```{r cars,message=F,warning=F}
 
-species_to_select <- output_baseMean %>%
+species_to_select <- data_baseMean %>%
   data.frame(.) %>%
   filter(!grepl("Bifidobacterium", row.names(.))) %>%
   filter(row.names(.) %in% complete_data$Var1) %>%
@@ -358,7 +360,7 @@ signif <- complete_data_filtered %>%
 
 ## Plotting pheatmap
 
-```{r cars,fig.height=10, fig.width=10}
+```{r cars,fig.height=8, fig.width=8}
 
 pheatmap(pheat, display_numbers = signif)
 
