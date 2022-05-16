@@ -1,0 +1,174 @@
+---
+title: "Genes_MAGS"
+author: "ruben"
+date: "12/05/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Librairies
+
+```{r,message=F,warning=F}
+
+library(dplyr)
+library(readr)
+library(pheatmap)
+library(data.table)
+library(tidyr)
+
+
+source(file = "functions.R")
+
+```
+
+## import data
+
+```{r,message=F,warning=F}
+
+load("curated_v3_otu_tax.rda")
+
+setwd("/home/tapju/storage/actibiome")
+
+## MAGS annotations data, containing completeness, average distance according to a reference genome, etc
+mags_tax_file = readr::read_tsv("data-raw/bif_mags/Bifidobacterium_annotation/annotations_url_metadata_opendata.tsv") %>%
+  filter(assigned_genus=="Bifidobacterium") %>%
+  select(genome_name,study,sample_name,assigned_species,completeness, average_distance)
+
+
+## MAGS linked to functions ID's
+mags_tax_gene_id_eggnog <- readr::read_csv2("data-raw/bif_mags/mags_tax_gene_id_eggnog.csv") %>%
+   select(-X1) %>%
+  ## filter the species of interest
+   filter(grepl("adolescentis|animalis| longum|bifidum|dentium|pseudocatenulatum|catenulatum|animalis", assigned_species))
+
+## number of mags per species
+
+nb_mags_species <- mags_tax_file %>%
+  data.frame(.) %>%
+  group_by(assigned_species) %>%
+  summarise(n=n()) %>%
+  filter(grepl("adolescentis|animalis| longum|bifidum|dentium|pseudocatenulatum|catenulatum|animalis", assigned_species))
+nb_mags_species$assigned_species <- gsub("Bifidobacterium","B.",nb_mags_species$assigned_species)
+
+```
+
+## R Markdown
+
+```{r, message=F,warning=F, fig.height=9, fig.width = 9}
+
+functionality <- "eggNOG_OGs"
+
+mags_ko_table <- mags_tax_gene_id_eggnog %>%
+  filter(completeness >= 80) %>%
+  filter((!!sym(functionality)) != "-") %>%
+  group_by_at(functionality) %>%
+  mutate(function_n=n()) %>%
+  ## eggnog must be in atleast 10 different MAGS
+   filter(function_n>10) %>%
+   ungroup() %>%
+   group_by_at(vars('genome_name',functionality)) %>%
+   summarise(n=n()) %>%
+   mutate(n=ifelse(n>1,1,n)) %>%
+   reshape2::dcast(paste0('genome_name', '~', functionality), value.var = "n", fill=0) %>%
+  merge(mags_tax_file %>% select(genome_name, assigned_species), by = "genome_name")
+
+
+heat <- mags_ko_table %>%
+  tibble::column_to_rownames("genome_name") %>%
+  as.matrix()
+   
+```
+
+## R Markdown
+
+```{r, message=F,warning=F, fig.height=9, fig.width = 9}
+
+one_species <- "Bifidobacterium bifidum"
+parameter_name <- "grp_healthy"
+
+heat_evaluate_chi <- heat_filtered
+heat_evaluate_chi[heat_evaluate_chi >1] <- "1"
+heat_evaluate_chi[heat_evaluate_chi <1] <- "0"
+
+heat_evaluate_chi_gathered <- heat_evaluate_chi %>%
+  rownames_to_column("MAGS") %>%
+  merge(mags_tax_filtered %>%
+          select_at(parameter_name) %>%
+          rownames_to_column("MAGS"),
+        by = "MAGS") %>%
+  select(-"MAGS") %>%
+  gather("eggnog", "presence", -c(parameter_name)) %>%
+  ## eggnog with only healthy or non healthy mist me deleted
+  filter(eggnog %in% eggnog_filtered)
+
+## create a vector to identify the modalities we test with presence
+
+modalities <- levels(factor(heat_evaluate_chi_gathered$grp))
+
+modalities_vec <- modalities[[1]]
+
+for (modality in modalities[-1]){
+  modalities_vec <- paste0(modality,"-",  modalities_vec)
+}
+
+
+
+heat_evaluate_chi_p <- heat_evaluate_chi_gathered %>%
+  ## do one chi square test per eggnog
+  group_by(eggnog) %>%
+  nest() %>% 
+  mutate(
+    chi_test = map(data, ~ chisq.test(.[[parameter_name]], .$presence)),
+    tidied = map(chi_test, tidy)
+  ) %>% 
+  unnest(tidied) %>%
+  ## delete useless columns
+  select(-data,- chi_test) %>%
+  ## which parameter we compared
+  mutate(parameter = parameter_name) %>%
+  ## which modalities have this parameters
+  mutate(parameter_modalities = modalities_vec) %>%
+  ## which species
+  mutate(species = one_species)
+
+
+
+
+```
+
+
+
+## Extract the core genome per species, with completeness > 80, and prevalence > 90
+
+```{r, message=F,warning=F, fig.height=9, fig.width = 9}
+
+core_genome <- mags_ko_table %>%
+  column_to_rownames("genome_name") %>%
+  group_by_at("assigned_species") %>%
+  ## calculate prevalence of eggnog by species
+  summarise_all(funs(mean(.>0))) %>%
+  column_to_rownames("assigned_species") %>%
+  ## delete eggnog with prevalence < 90% in all species
+  select_if(~all(. > 0.9)) %>%
+  t %>%
+  ## merge annotations
+  data.frame(.) %>%
+  rownames_to_column("eggnog") %>%
+  select(eggnog)
+  
+  
+annotations <- mags_tax_gene_id_eggnog %>%
+  select(Description,eggNOG_OGs) %>%
+  distinct() %>%
+  merge(core_genome, by.x = "eggNOG_OGs", by.y = "eggnog")
+
+write_tsv(annotations, "core_genome_annotation.tsv")
+
+t <- fread("core_genome_annotation.tsv")
+
+```
+
