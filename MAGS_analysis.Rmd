@@ -185,7 +185,6 @@ prevalence_cazy_species %>%
     reshape2::dcast(assigned_species~CAZy, value.var = "p", fill=0) %>%
    tibble::column_to_rownames("assigned_species") %>%
    as.matrix() %>%
-   pheatmap::pheatmap(show_colnames = FALSE, main = "CAZy annotations")
 
 ## plot eggnog functions
 prevalence_eggnog_species %>%
@@ -771,5 +770,3 @@ df_nested <- df %>%
 
 
 ```
-
-
