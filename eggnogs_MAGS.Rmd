@@ -29,6 +29,8 @@ source(file = "functions.R")
 
 ```{r,message=F,warning=F}
 
+species <- c("Bifidobacterium adolescentis","Bifidobacterium animalis","Bifidobacterium bifidum","Bifidobacterium catenulatum","Bifidobacterium longum","Bifidobacterium pseudocatenulatum")
+
 load("curated_v3_otu_tax.rda")
 
 setwd("/home/tapju/storage/actibiome")
@@ -54,6 +56,54 @@ nb_mags_species <- mags_tax_file %>%
   filter(grepl("adolescentis|animalis| longum|bifidum|dentium|pseudocatenulatum|catenulatum|animalis", assigned_species))
 nb_mags_species$assigned_species <- gsub("Bifidobacterium","B.",nb_mags_species$assigned_species)
 
+
+```
+
+## mags _ tax file with selected species
+
+```{r,message=F,warning=F}
+
+sample <- sampleMetadata
+
+## if one ppl has several samples, keep the sample with the highest nb of reads
+sample <- unique(setDT(sampleMetadata)[order(subject_id, -number_reads)], by = "subject_id")
+
+metadata <- sample %>%
+   ## transform disease and westernized to good format
+   transform_disease(.) %>%
+   transform_westernized(.) %>%
+   select(sample_id, body_site, disease, age_category, gender, country, westernized, BMI, antibiotics_current_use)
+
+
+## merge with mags_tax
+
+mags_tax <- mags_tax_file %>%
+   merge(metadata, by.x = "sample_name", by.y = "sample_id") %>%
+   tibble::column_to_rownames("genome_name") %>%
+   filter(assigned_species %in% species) 
+
+```
+
+## code block to add healthy/unhealthy clusters
+
+```{r,message=F,warning=F}
+metadata <- metadata
+
+setwd("/home/ladeirru/GitHub/microbiome.actibiome")
+bifido <- fread("enterotype_DMM") %>%
+   select(-V1) %>%
+   merge(metadata, by="sample_id") %>%
+   mutate(grp_healthy = case_when(
+    bifidotype %in% c(1,2,6) ~ "healthy",
+    TRUE ~ "unhealthy"
+  )) 
+
+
+mags_tax <- mags_tax %>%
+  rownames_to_column("MAGS") %>%
+  merge(bifido %>% select(sample_id, grp_healthy), by.x = "sample_name", by.y="sample_id") %>%
+  column_to_rownames("MAGS")
+
 ```
 
 ## R Markdown
@@ -78,68 +128,108 @@ mags_ko_table <- mags_tax_gene_id_eggnog %>%
 
 
 heat <- mags_ko_table %>%
-  tibble::column_to_rownames("genome_name") %>%
-  as.matrix()
+  tibble::column_to_rownames("genome_name")
    
+```
+
+
+## Prepare heat df
+
+```{r, message=F,warning=F, fig.height=9, fig.width = 9}
+
+data_chi_species <- vector("list")
+
+
+parameter_name <- "grp_healthy"
+heat_evaluate_chi <- heat %>%
+  select(-assigned_species)
+heat_evaluate_chi[heat_evaluate_chi >1] <- "1"
+heat_evaluate_chi[heat_evaluate_chi <1] <- "0"
+
+#heat_evaluate_chi <- cbind(heat_evaluate_chi, assigned_species = heat$assigned_species)
+#heat_evaluate_chi <- cbind(heat_evaluate_chi, assigned_species = heat$assigned_species)
+
 ```
 
 ## R Markdown
 
 ```{r, message=F,warning=F, fig.height=9, fig.width = 9}
 
-one_species <- "Bifidobacterium bifidum"
-parameter_name <- "grp_healthy"
-
-heat_evaluate_chi <- heat_filtered
-heat_evaluate_chi[heat_evaluate_chi >1] <- "1"
-heat_evaluate_chi[heat_evaluate_chi <1] <- "0"
-
-heat_evaluate_chi_gathered <- heat_evaluate_chi %>%
-  rownames_to_column("MAGS") %>%
-  merge(mags_tax_filtered %>%
-          select_at(parameter_name) %>%
-          rownames_to_column("MAGS"),
-        by = "MAGS") %>%
-  select(-"MAGS") %>%
-  gather("eggnog", "presence", -c(parameter_name)) %>%
-  ## eggnog with only healthy or non healthy mist me deleted
-  filter(eggnog %in% eggnog_filtered)
-
-## create a vector to identify the modalities we test with presence
-
-modalities <- levels(factor(heat_evaluate_chi_gathered$grp))
-
-modalities_vec <- modalities[[1]]
-
-for (modality in modalities[-1]){
-  modalities_vec <- paste0(modality,"-",  modalities_vec)
-}
+for (i in 1:length(species)) {
+  ## for each species, do a chi squared test
+  one_species <- species[[i]]
 
 
+  heat_evaluate_chi_gathered <- heat_evaluate_chi %>%
+    rownames_to_column("MAGS") %>%
+    inner_join(mags_tax %>%
+                 select_(parameter_name, 'assigned_species') %>%
+                 rownames_to_column("MAGS"),
+               by = "MAGS") %>%
+    select(-"MAGS") %>%
+    ## filter the species of interest
+    filter(assigned_species == one_species) %>%
+    gather("eggnog", "presence", -c(parameter_name, 'assigned_species'))
+  
+  
+    ## eggnog with only healthy or non healthy mist me deleted
+  eggnog_to_filter <- heat_evaluate_chi_gathered %>%
+    select(eggnog, grp_healthy, presence) %>%
+    group_by(eggnog, grp_healthy, presence) %>%
+    count(grp_healthy) %>%
+    ungroup()  %>%
+    select(-n, -presence) %>%
+    group_by(eggnog) %>%
+    count(grp_healthy) %>%
+    select(-grp_healthy) %>%
+    ungroup()  %>%
+    group_by(eggnog) %>%
+    mutate(n = sum(n)) %>%
+    filter(n > 3) %>%
+    select(eggnog) %>%
+    .$eggnog %>%
+    unique()
+  
+  ##
+  heat_evaluate_chi_gathered <- heat_evaluate_chi_gathered %>%
+    filter(eggnog %in% eggnog_to_filter)
+  
+  ## create a vector to identify the modalities we test with presence
 
-heat_evaluate_chi_p <- heat_evaluate_chi_gathered %>%
-  ## do one chi square test per eggnog
-  group_by(eggnog) %>%
-  nest() %>% 
-  mutate(
-    chi_test = map(data, ~ chisq.test(.[[parameter_name]], .$presence)),
-    tidied = map(chi_test, tidy)
-  ) %>% 
-  unnest(tidied) %>%
-  ## delete useless columns
-  select(-data,- chi_test) %>%
-  ## which parameter we compared
-  mutate(parameter = parameter_name) %>%
-  ## which modalities have this parameters
-  mutate(parameter_modalities = modalities_vec) %>%
-  ## which species
-  mutate(species = one_species)
+  modalities <- levels(factor(heat_evaluate_chi_gathered[[parameter_name]]))
+
+  modalities_vec <- modalities[[1]]
+
+  for (modality in modalities[-1]){
+    modalities_vec <- paste0(modality,"-",  modalities_vec)
+    }
 
 
+  dim <- heat_evaluate_chi_gathered %>%
+    ## do one chi square test per eggnog
+    group_by(eggnog, assigned_species) %>%
+    nest() %>% 
+    mutate(
+      chi_test = map(data, ~ chisq.test(.[[parameter_name]], .$presence)),
+      tidied = map(chi_test, tidy)
+      ) %>% 
+    unnest(tidied) %>%
+    ## delete useless columns
+    select(-data,- chi_test) %>%
+    ## which parameter we compared
+    mutate(parameter = parameter_name) %>%
+    ## which modalities have this parameters
+    mutate(parameter_modalities = modalities_vec)
+  
+  data_chi_species[[i]] <- dim
+  
+  print(i)
 
+  }
+
+data <- bind_rows(data_chi_species, .id = "column_label")
 
 ```
-
 
 
 ## Extract the core genome per species, with completeness > 80, and prevalence > 90
