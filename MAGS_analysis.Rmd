@@ -29,9 +29,10 @@ source(file = "functions.R")
 
 ```{r,message=F,warning=F}
 
-load("curated_v3_otu_tax.rda")
+## the species we select :
+species <- c("Bifidobacterium adolescentis","Bifidobacterium animalis","Bifidobacterium bifidum","Bifidobacterium catenulatum","Bifidobacterium longum","Bifidobacterium pseudocatenulatum")
 
-setwd("/home/tapju/storage/actibiome")
+load("curated_v3_otu_tax.rda")
 
 ## MAGS annotations data, containing completeness, average distance according to a reference genome, etc
 mags_tax_file = readr::read_tsv("data-raw/bif_mags/Bifidobacterium_annotation/annotations_url_metadata_opendata.tsv") %>%
@@ -49,9 +50,11 @@ mags_tax_gene_id_eggnog <- readr::read_csv2("data-raw/bif_mags/mags_tax_gene_id_
 
 nb_mags_species <- mags_tax_file %>%
   data.frame(.) %>%
+  filter(completeness > 80) %>%
   group_by(assigned_species) %>%
   summarise(n=n()) %>%
-  filter(grepl("adolescentis|animalis| longum|bifidum|dentium|pseudocatenulatum|catenulatum|animalis", assigned_species))
+  filter(grepl("adolescentis|animalis| longum|bifidum|dentium|pseudocatenulatum|catenulatum|animalis",
+               assigned_species))
 nb_mags_species$assigned_species <- gsub("Bifidobacterium","B.",nb_mags_species$assigned_species)
 
 ```
@@ -530,6 +533,8 @@ threshold = 0.10
 
 load("./MAGS_files/cluster_results")
 
+seed <- "1234"
+
 if("cluster_results" %in% list.files(rep) & which_function == "eg"){
   
   for (one_species in species){
@@ -615,26 +620,26 @@ setwd("/home/ladeirru/GitHub/microbiome.actibiome")
 bifido <- fread("enterotype_DMM") %>%
    select(-V1) %>%
    merge(metadata, by="sample_id") %>%
-   mutate(grp = case_when(
+   mutate(grp_healthy = case_when(
     bifidotype %in% c(1,2,6) ~ "healthy",
     TRUE ~ "unhealthy"
   )) 
 
 bifido_count <- bifido %>%
-  select(disease, BMI, bifidotype, age_category, grp)  %>%
+  select(disease, BMI, bifidotype, age_category, grp_healthy)  %>%
      mutate(disease = case_when(
     disease %in% c('Adenoma', "Colorectal", "Metabolic",  "Bowel", "Arthritis", "BD") ~ "unhealthy",
     TRUE ~ "healthy"
   )) %>%
-   #group_by(grp) %>%
-   dplyr::count(grp, disease) %>%
+   #group_by(grp_healthy) %>%
+   dplyr::count(grp_healthy, disease) %>%
    group_by(disease) %>%
    mutate(
     perc = round(n/sum(n), 3)
   )
 
 
-view(bifido)
+#view(bifido)
 
 ```
 
@@ -648,7 +653,7 @@ one_species <- "Bifidobacterium bifidum"
     # for each species, select mags
     mags_tax_filtered <- mags_tax %>% filter(assigned_species == one_species) %>%
       rownames_to_column("MAGS") %>%
-      merge(bifido %>% select(sample_id, grp), by.x = "sample_name", by.y="sample_id") %>%
+      merge(bifido %>% select(sample_id, grp_healthy), by.x = "sample_name", by.y="sample_id") %>%
       column_to_rownames("MAGS") %>%
       filter(assigned_species == one_species)
 
@@ -686,7 +691,7 @@ one_species <- "Bifidobacterium bifidum"
                      show_rownames = FALSE,
                      show_colnames = FALSE,
                      annotation_row = mags_tax_filtered %>%
-                        select(grp),
+                        select(grp_healthy),
                      annotation_colors = annotation_colors,
                      main= paste0(one_species, " MAGS | ", functionality, " annotations")
                      )
@@ -706,11 +711,11 @@ heat_evaluate_chi[heat_evaluate_chi <1] <- "absent"
 heat_evaluate_chi_gathered <- heat_evaluate_chi %>%
   rownames_to_column("MAGS") %>%
   merge(mags_tax_filtered %>%
-          select(grp) %>%
+          select(grp_healthy) %>%
           rownames_to_column("MAGS"),
         by = "MAGS") %>%
   select(-"MAGS") %>%
-  gather("eggnog", "presence", -c("grp")) %>%
+  gather("eggnog", "presence", -c("grp_healthy")) %>%
   ## eggnog with only healthy or non healthy mist me deleted
   filter(eggnog %in% eggnog_filtered)
 
@@ -720,15 +725,20 @@ heat_evaluate_chi_p <- heat_evaluate_chi_gathered %>%
   group_by(eggnog) %>%
   nest() %>% 
   mutate(
-    chi_test = map(data, ~ chisq.test(.$grp, .$presence)),
+    chi_test = map(data, ~ chisq.test(.$grp_healthy, .$presence)),
     tidied = map(chi_test, tidy)
   ) %>% 
   unnest(tidied)
 
 ### how many significant eggnogs have been found ?
 
+# ajuster sur p.adjust method ajuster par FDR
+
 eggnog_significant <- heat_evaluate_chi_p %>%
+  ungroup() %>%
+  mutate(p.value = p.value %>% p.adjust(method="fdr")) %>%
   filter(p.value < 0.01)
+
 
 ## 85 out of 531 eggnogs have been found significant
 
