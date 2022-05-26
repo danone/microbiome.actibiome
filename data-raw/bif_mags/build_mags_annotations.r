@@ -29,7 +29,7 @@ mags_tax_gene_id_eggnog =
 
 mags_tax_gene_id_eggnog =
   mags_tax_gene_id_eggnog %>%
-  merge(genes_id_rep_eggnog %>% select(`#query`, seed_ortholog,eggNOG_OGs, EC, KEGG_ko, CAZy, Description), by.x="id_rep", by.y="#query")
+  merge(genes_id_rep_eggnog %>% select(`#query`, seed_ortholog,eggNOG_OGs, EC, KEGG_ko, CAZy,PFAMs, Description), by.x="id_rep", by.y="#query")
 
 
 
