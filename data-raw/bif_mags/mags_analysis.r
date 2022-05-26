@@ -102,5 +102,5 @@ readr::write_tsv(all_bif_cd_hit_rep, file="bif_clusters/all.bif.nr95.fna.rep.tsv
 #emapper_cmd = "python3.7 /home/tapju/bin/eggnog-mapper/emapper.py --itype CDS --translate -i bif_clusters/all.bif.nr95.fna -o bif_clusters/bif.nr95.annot --cpu 16"
 #system(emapper_cmd)
 
-#run_dbcan /home/tapju/storage/actibiome/data-raw/bif_mags/bif_clusters/all.bif.nr95.fna prok --out_dir /home/tapju/storage/actibiome/data-raw/bif_mags/output_bif_dbcan 
-
+#run_dbcan /home/tapju/storage/actibiome/data-raw/bif_mags/bif_clusters/all.bif.nr95.fna prok --out_dir /home/tapju/storage/actibiome/data-raw/bif_mags/output_bif_dbcan
+# nohup run_dbcan /home/tapju/storage/actibiome/data-raw/bif_mags/bif_clusters/all.bif.nr95.fna prok --out_dir /home/tapju/storage/actibiome/data-raw/bif_mags/output_bif_dbcan3 --db_dir /opt/dbcan/db &
