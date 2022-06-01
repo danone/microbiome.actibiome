@@ -1,0 +1,25 @@
+---
+title: "PFAM analysis"
+output: html_notebook
+---
+
+```{r}
+
+phytase_pfam_desc = c("His_Phos_2","Y_phosphatase3", "Phytase", "Phytase-like", "fn3_PAP")
+
+mags_tax_gene_id_eggnog %>% 
+  filter(grepl(paste(phytase_pfam_desc, collapse="|"), PFAMs)) %>%
+  select(assigned_species, eggNOG_OGs,PFAMs, Description) %>%
+  group_by(assigned_species, eggNOG_OGs,PFAMs, Description) %>%
+  summarise(n=n()) -> bif_phytase 
+
+bif_phytase %>% write.csv2(file="bif_MAGs_phytase.csv")
+
+  
+  
+
+
+
+
+```
+
