@@ -19,6 +19,7 @@ library(readr)
 library(pheatmap)
 library(data.table)
 library(tidyr)
+library(ggplot2)
 
 
 source(file = "functions.R")
@@ -112,12 +113,12 @@ if(which_function == "ko"){
 
 ```{r}
 
-#mags_tax_gene_id_eggnog %>% 
-#   filter(completeness>0.80) %>%
-#   select(genome_name, assigned_species) %>%
-#   unique() %>%
-#   group_by(assigned_species) %>%
-#   summarise(n_genome = n()) -> prevalence_genomes_species
+mags_tax_gene_id_eggnog %>% 
+   filter(completeness>0.80) %>%
+   select(genome_name, assigned_species) %>%
+   unique() %>%
+   group_by(assigned_species) %>%
+   summarise(n_genome = n()) -> prevalence_genomes_species
 
 mags_tax_gene_id_eggnog %>% 
    filter(completeness>0.80) %>%
@@ -187,16 +188,21 @@ prevalence_cazy_species %>%
    as.matrix() %>%
 
 ## plot eggnog functions
-prevalence_eggnog_species %>%
+heatmap_prevalence_eggnog_species <- prevalence_eggnog_species %>%
    filter(assigned_species != "N/A") %>%
    group_by(eggNOG_OGs) %>%
    mutate(max=max(p), min=min(p)) %>%
    ungroup() %>%
    filter(max>0.05, min < 0.20 ) %>%
     reshape2::dcast(assigned_species~eggNOG_OGs, value.var = "p", fill=0) %>%
-   tibble::column_to_rownames("assigned_species") %>%
+   tibble::column_to_rownames("assigned_species")
+
+heatmap_prevalence_eggnog_species %>%
    as.matrix() %>%
    pheatmap::pheatmap(show_colnames = FALSE, main = "eggnog annotations")
+
+## write the results for PCA analyses
+write.csv2(heatmap_prevalence_eggnog_species, "heatmap_prev_species.csv", quote = F, col.names = TRUE, row.names = TRUE)
 
 ## plot eggnog functions
 prevalence_eggnog_species %>%
@@ -235,8 +241,11 @@ prevalence_eggnog_species %>%
 
 ```{r,message=F,warning=F}
 
+mags_ko_file_name <- "mags_ko_file.csv"
 
-mags_ko_table <- mags_tax_gene_id_eggnog %>%
+if (!(mags_ko_file_name %in% list.files())) {
+  
+  mags_ko_table <- mags_tax_gene_id_eggnog %>%
   filter(completeness >= 80) %>%
   filter((!!sym(functionality)) != "-") %>%
   group_by_at(functionality) %>%
@@ -247,8 +256,14 @@ mags_ko_table <- mags_tax_gene_id_eggnog %>%
    summarise(n=n()) %>%
    mutate(n=ifelse(n>1,2,n)) %>%
    reshape2::dcast(paste0('genome_name', '~', functionality), value.var = "n", fill=0)
-
-
+  
+  write.csv2(mags_ko_table, mags_ko_file_name, quote = F, col.names = TRUE, row.names = FALSE)
+  
+}else{
+  
+  mags_ko_table <- readr::read_csv2(mags_ko_file_name)
+  
+}
 
 heat <- mags_ko_table %>%
   tibble::column_to_rownames("genome_name") %>%
@@ -770,3 +785,4 @@ df_nested <- df %>%
 
 
 ```
+

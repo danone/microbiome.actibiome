@@ -219,3 +219,10 @@ get_bifid_species <- function(tax,liste_taxa){
 
 
 
+get_mode <- function(x){
+  "This function gives the most frequenct string in a vector of strings"
+  return(names(sort(table(x), decreasing = T, na.last = T)[1]))
+}
+
+
+
