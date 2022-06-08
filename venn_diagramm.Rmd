@@ -1,0 +1,31 @@
+---
+title: "venn diagramm analysis"
+output: html_notebook
+---
+
+
+```{r}
+library(UpSetR)
+
+
+```
+
+
+```{r}
+
+mags_tax_gene_id_eggnog %>%
+  select(assigned_species,EC) %>%
+  filter(EC!="-") %>%
+  unique() -> ec_assigned_species
+
+
+ec_assigned_species %>%
+  group_by(assigned_species,EC) %>%
+  summarise(n=n()) %>%
+  reshape2::dcast(EC~assigned_species, value.var = "n", fill=0) %>%
+  UpSetR::upset()
+  
+
+
+```
+
