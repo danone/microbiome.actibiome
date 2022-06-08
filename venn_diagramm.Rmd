@@ -29,3 +29,38 @@ ec_assigned_species %>%
 
 ```
 
+
+
+## PUP
+
+```{r}
+
+readr::read_tsv("data-raw/all.bif.nr95.dbPUP.hits.tsv") %>%
+  dplyr::rename(pup_annot=annot) %>%
+  select(-tax) %>%
+  merge(mags_tax_gene_id_eggnog, by="id_rep", all = FALSE) %>%
+  select(assigned_species, eggNOG_OGs, pup_family, Description, pup_annot) %>%
+  mutate(Description = paste(Description,pup_annot)) %>%
+  unique %>%
+  group_by(assigned_species, pup_family) %>%
+  summarise(n=1) %>%
+  reshape2::dcast(pup_family~assigned_species, value.var = "n", fill=0) %>%
+  UpSetR::upset()
+
+
+
+```
+
+
+```{r}
+
+readr::read_tsv("data-raw/cazy_dbcann.tsv") %>%
+  merge(mags_tax_gene_id_eggnog,., by.x="id_rep", by.y="Gene ID", all = FALSE) %>%
+  select(assigned_species, eggNOG_OGs, cazy_family, Description) %>%
+group_by(assigned_species, cazy_family) %>%
+  summarise(n=1) %>%
+  reshape2::dcast(cazy_family~assigned_species, value.var = "n", fill=0) %>%
+  UpSetR::upset(nsets = 7)
+
+```
+
