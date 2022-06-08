@@ -4,6 +4,21 @@ output: html_notebook
 ---
 
 ```{r}
+mags_tax_gene_id_eggnog %>%
+  select(genome_name, assigned_species) %>%
+  mutate(genome_name= paste0(genome_name,".fa")) %>%
+  unique() -> genome_name_assigned_species_df
+
+
+genome_name_assigned_species_df %>%
+  group_by(assigned_species) %>%
+  summarise(n_genomes=n())
+
+```
+
+## phytase
+
+```{r}
 
 phytase_pfam_desc = c("His_Phos_2","Y_phosphatase3", "Phytase", "Phytase-like", "fn3_PAP")
 
@@ -17,8 +32,77 @@ bif_phytase %>% write.csv2(file="bif_MAGs_phytase.csv")
 
   
   
+bif_phytase %>%
+  reshape2::dcast(eggNOG_OGs+PFAMs+Description~assigned_species, fill=0)
 
 
+
+```
+
+
+## PUP
+
+```{r}
+
+readr::read_tsv("data-raw/all.bif.nr95.dbPUP.hits.tsv") %>%
+  dplyr::rename(pup_annot=annot) %>%
+  select(-tax) %>%
+  merge(mags_tax_gene_id_eggnog, by="id_rep", all = FALSE) %>%
+  select(assigned_species, eggNOG_OGs, pup_family, Description, pup_annot) %>%
+  mutate(Description = paste(Description,pup_annot)) %>%
+  group_by(assigned_species, eggNOG_OGs, pup_family, Description) %>%
+  summarise(n=n()) -> bif_PUP
+
+bif_PUP %>% write.csv2(file="bif_MAGs_PUP.csv")
+
+
+bif_PUP %>%
+  reshape2::dcast(eggNOG_OGs+pup_family+Description~assigned_species, fill=0)
+
+
+```
+
+## cazy
+
+```{r}
+readr::read_tsv("data-raw/cazy_dbcann.tsv") %>%
+  merge(mags_tax_gene_id_eggnog,., by.x="id_rep", by.y="Gene ID", all = FALSE) %>%
+  select(assigned_species, eggNOG_OGs, cazy_family, Description) %>%
+  group_by(assigned_species, eggNOG_OGs, cazy_family, Description) %>%
+  summarise(n=n()) -> bif_cazy
+
+bif_cazy %>% write.csv2(file="bif_MAGs_cazy.csv")
+
+
+
+
+
+```
+
+
+
+
+```{r}
+
+rbind(
+bif_phytase %>%
+  mutate(gene_type="PHYTASE") %>%
+  dplyr::rename(family = PFAMs) ,
+
+bif_PUP %>%
+  mutate(gene_type="PUPs") %>%
+  dplyr::rename(family = pup_family),
+
+bif_cazy %>%
+  mutate(gene_type="CAZy") %>%
+  dplyr::rename(family = cazy_family)
+
+
+) %>% reshape2::dcast(eggNOG_OGs+gene_type+family+Description~assigned_species, fill=0, value.var = "n") %>%
+arrange(gene_type, family) -> bif_prevalence_phytase_cazy_pup
+  
+
+readr::write_csv2(x = bif_prevalence_phytase_cazy_pup, file="bif_prevalence_phytase_cazy_pup.csv")
 
 
 ```
