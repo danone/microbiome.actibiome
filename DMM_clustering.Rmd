@@ -63,11 +63,13 @@ phy <- subset_samples(phy, body_site == "stool")
 
 phy_diversity <- estimate_richness(phy, split = TRUE, measures = "Shannon")
 
-#phy <- subset_samples(phy, age_category == "adult")
+phy <- subset_samples(phy, age_category == "adult")
 
 #phy <- subset_samples(phy, disease == "Control")
 
 phy <- subset_samples(phy, antibiotics_current_use == "no")
+
+phy <- subset_samples(phy, westernized == "yes")
 
 ```
 
@@ -78,23 +80,17 @@ phy <- subset_samples(phy, antibiotics_current_use == "no")
 pseq <- subset_taxa(phy, Genus %in% c("Bifidobacterium"))
 
 
-which_study <- readline(prompt=paste("Do you want to cluster the data on ASNICAR (Predict) or whole CURATED data without predict ? : ", "pre - PREDICT", "cur - CURATED minus PREDICT","who - WHOLE CURATED DATA SET","", sep="\n"))
+which_study <- readline(prompt=paste("Do you want to cluster the data on ASNICAR (Predict) or whole CURATED data without predict ? : ", "pre - PREDICT", "cur - CURATED minus PREDICT","who - WHOLE CURATED DATA SET", "6clusters - 6 clusters model","who - WHOLE CURATED DATA SET", "", sep="\n"))
 
-while(!which_study %in% c("cur", "pre", "who")){
+while(!which_study %in% c("cur", "pre", "who", "6clusters")){
   which_study <- readline(prompt=paste("Error, please redo : ", "pre - PREDICT", "cur -
-                                       CURATED minus PREDICT","who - WHOLE CURATED DATA SET", "", sep="\n"))
+                                       CURATED minus PREDICT","who - WHOLE CURATED DATA SET","6clusters - 6 clusters model", "", sep="\n"))
 }
 
 if(which_study == "cur"){
   ## we exclude predict data
   
   pseq <- subset_samples(pseq, !PMID == 33432175)
-  
-  ## keep only adults subjects
-  
-  pseq <- subset_samples(pseq, age_category == "adult")
-  
-} else if (which_study == "who"){
   
   ## keep only adults subjects
   
@@ -131,6 +127,8 @@ seeds_list_name = paste0("seeds_", which_study)
 dat <- abundances(pseq)
 count_raw <- as.matrix(t(dat))
 
+dat
+
 # rowsums equal zero (sample with 0 count everywhere) need to be deleted
 
 sample_low_reads <- names(which(rowSums(count_raw) <= 500))
@@ -140,6 +138,8 @@ sample_low_reads <- names(which(rowSums(count_raw) <= 500))
 count <- count_raw %>%
   as.data.frame(.) %>%
   filter_all(., any_vars(. != 0))
+
+
 
 ## select ppl with 0 bifid, they are selected as a no bifid cluster
 
@@ -160,6 +160,8 @@ count <- count %>%
 # transform colnames to species name
 
 colnames(count) <- get_species(as.data.frame(tax),colnames(count))
+
+nrow(count)
 
 ```
 
@@ -198,6 +200,7 @@ if(!(dmm_name %in% list.files("./DMM_files/")) & !(seeds_list_name %in% list.fil
   load(paste0("./DMM_files/", dmm_name))
   load(paste0("./DMM_files/", seeds_list_name))
   }
+
 
 # collect scores to find the best fit
 lplc = vector("list",5)
@@ -403,6 +406,8 @@ ggplot(binded) +
 
 model <- apply(mixture(best), 1, which.max)
 
+save(model, file="model_DMM")
+
 ## write the enterotype file
 
 enterotype <- data.frame(bifidotype = model)
@@ -423,8 +428,8 @@ enterotype <- enterotype %>%
 
 write.csv(enterotype, file="enterotype_DMM_adults", row.names=TRUE, col.names=TRUE, quote=FALSE)
 
-#t <- fread("enterotype_DMM") %>%
-#  column_to_rownames("V1")
+enterotype <- fread("enterotype_DMM") %>%
+  column_to_rownames("V1")
 
 enterotype$bifidotype <- as.character(enterotype$bifidotype)
 
@@ -553,7 +558,7 @@ data_sorted <- top_5_ab %>%
   rownames_to_column('species') %>%
   gather(key="cluster", value="value", 2:(ncol(matrix_int)+1)) %>%
   select(-value) %>%
-  rename('bifidotype' = 'cluster') %>%
+  dplyr::rename('bifidotype' = 'cluster') %>%
   filter(species %in% species_to_select)
 
 data_sorted$species <- str_squish(data_sorted$species)
@@ -565,7 +570,7 @@ top_5 <- top_5_ab %>%
   group_by(cluster) %>%
   top_n(5, value) %>%
   select(-value) %>%
-  rename('bifidotype' = 'cluster')
+  dplyr::rename('bifidotype' = 'cluster')
 top_5$bifidotype = gsub("cluster", "", top_5$bifidotype)
 ## remove multiple spaces
 top_5$species <- str_squish(top_5$species)
@@ -594,6 +599,8 @@ colnames(otu_most) <- gsub("\\.", " ", colnames(otu_most))
 colnames(otu_most) <- str_squish(colnames(otu_most))
 
 # which(is.na(otu_most))
+
+bifidotype <- enterotype
 
 otu_most <- otu_most %>%
   rownames_to_column("sample_id") %>%
@@ -703,18 +710,16 @@ p
 ```{r,message=F,warning=F}
 
 sam_data$bifidotype <- as.character(sam_data$bifidotype)
-
-p  <- ggplot(sam_data, aes(x = bifidotype,
-                       y = bif_rel, fill=bifidotype))+ geom_boxplot(outlier.shape = NA) 
   
-p <- 
+p <- ggplot(sam_data, aes(x = bifidotype,
+                       y = bif_rel, fill=bifidotype))+ geom_boxplot(outlier.shape = NA) 
   labs(x = NULL, y = NULL, title = "Relative Abundance of Bifidobacterium",fill= "Cluster") + 
-  #coord_cartesian(ylim=c(0,0.3)) +
+  coord_cartesian(ylim=c(0,0.46)) +
   scale_x_discrete(limits = as.character(1:max(sam_data$bifidotype))) +
   stat_compare_means(label.y = 0.64, label.x ="3") +
-  stat_compare_means(label = "p.signif", method = "wilcox", ref.group = "1", label.y = 0.6)# +
-theme_minimal() +
-  #coord_cartesian(ylim = c(0, 0.64))
+  stat_compare_means(label = "p.signif", method = "wilcox", ref.group = "1", label.y = 0.6) +
+    theme_minimal()+
+  coord_cartesian(ylim = c(0, 0.46))
   
 
 p

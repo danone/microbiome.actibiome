@@ -3,9 +3,41 @@ title: "PFAM analysis"
 output: html_notebook
 ---
 
-```{r}
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Librairies
+
+```{r,message=F,warning=F}
+
+
+
+source(file = "functions.R")
+
+```
+
+## import data
+
+```{r,message=F,warning=F}
+
+mags_tax_gene_id_eggnog <- readr::read_csv2("data-raw/mags_tax_gene_id_eggnog.csv") %>%
+   select(-X1)
+
+
+### load matrix of distances
+
+load(file = "bif_mags_dist.rda")
+
+```
+
+## phytase analysis
+
+```{r,message=F,warning=F}
 
 phytase_pfam_desc = c("His_Phos_2","Y_phosphatase3", "Phytase", "Phytase-like", "fn3_PAP")
+
 
 mags_tax_gene_id_eggnog %>% 
   filter(grepl(paste(phytase_pfam_desc, collapse="|"), PFAMs)) %>%
@@ -15,11 +47,5 @@ mags_tax_gene_id_eggnog %>%
 
 bif_phytase %>% write.csv2(file="bif_MAGs_phytase.csv")
 
-  
-  
-
-
-
 
 ```
-

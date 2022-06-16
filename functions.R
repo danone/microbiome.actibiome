@@ -225,4 +225,41 @@ get_mode <- function(x){
 }
 
 
+########
+# get the species from mags
 
+#liste_mags <- colnames(bif_mags_dist)
+
+#mags <- mags_tax_gene_id_eggnog
+
+get_bifid_species_MAGS <- function(mags,liste_mags){
+  "Renvoie la liste des espèces assignées à partir des noms des génomes"
+  
+  mags <- as.data.frame(mags)
+  
+  liste_mags <- colnames(bif_mags_dist)
+  
+  liste_mags <- liste_mags %>%
+    data.frame(genome_name= .) %>%
+    unfactor()
+  
+  liste_mags$genome_name <- as.character(liste_mags$genome_name)
+  
+  names <- liste_mags %>%
+    inner_join(., mags %>% select(genome_name, assigned_species) %>% distinct(), by = "genome_name")
+  
+  names <- names
+  
+  return(as.character(names$Genus))
+  
+}
+
+### create a function that will add a row of 0 if there are only 1, or 1 if there are only 0 in presence column
+
+pres_abs = c(0,1)
+
+#add_presence_absence <- function(one_species){
+  
+#  if
+  
+#}
