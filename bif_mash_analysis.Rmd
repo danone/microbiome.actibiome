@@ -1,0 +1,404 @@
+---
+title: "mash analysis"
+output: html_notebook
+---
+
+```{r}
+
+## MAGS annotations data, containing completeness, average distance according to a reference genome, etc
+mags_tax_file = readr::read_tsv("data-raw/bif_mags/Bifidobacterium_annotation/annotations_url_metadata_opendata.tsv") %>%
+  filter(assigned_genus=="Bifidobacterium") %>%
+  select(genome_name,study,sample_name,assigned_species,completeness, average_distance)
+
+
+mags_tax_gene_id_eggnog %>%
+  select(genome_name, assigned_species) %>%
+  mutate(genome_name= paste0(genome_name,".fa")) %>%
+  unique() -> genome_name_assigned_species_df
+
+
+```
+
+
+```{r}
+
+genome_name_assigned_species_df %>%
+  filter(assigned_species == "Bifidobacterium catenulatum") %>% pull(genome_name) -> catenulatum_mags
+
+
+
+
+```
+
+## all bif
+
+```{r}
+mash_cmd="~/bin/mash_bin/mash dist"
+
+path = "/home/tapju/storage/actibiome/data-raw/bif_mags/Bifidobacterium_bins/"
+
+mags_fa = list.files("data-raw/bif_mags/Bifidobacterium_bins/", pattern = "*.fa")
+
+
+
+# system(
+#   
+#   paste(mash_cmd, paste0(path,mags_fa[1]),  paste0(path,mags_fa[2]) )
+# )
+
+
+mash_cmd="~/bin/mash_bin/mash sketch"
+
+all_genome_collapse = paste0(path,mags_fa[1:3973], collapse = " ")
+
+paste(mash_cmd, "-o bif_mags_ref2", all_genome_collapse) %>% writeLines(con="run_mash.sh")
+
+
+system(
+  
+  "sh run_mash.sh"
+)
+```
+
+
+```{r}
+mash_result=NULL
+
+for(i in seq_along(mags_fa)) {
+  
+  mash_cmd="~/bin/mash_bin/mash dist"
+  
+  tmp=system(
+  
+  paste(mash_cmd, paste0("bif_mags_ref2.msh"),  paste0(path,mags_fa[i]) ), intern = TRUE
+)
+  
+  mash_result = c(mash_result,tmp)
+  
+  
+}
+
+
+data.frame(mash=mash_result) %>%
+  tidyr::separate(mash, into=LETTERS[1:5], sep = "\t") %>%
+  mutate(A=A%>%gsub(path, "", .), B=B%>%gsub(path,"",.)) -> bif_mags_pairwise_mash_dist
+
+save(bif_mags_pairwise_mash_dist, file="bif_mags_pairwise_mash_dist.rda")
+```
+
+
+
+
+
+```{r}
+
+bif_mags_pairwise_mash_dist %>%
+  select(A,B,C) %>%
+  mutate(C=C%>%as.numeric()) %>%
+  group_by(A,B) %>%
+  slice(1) %>%
+  ungroup() %>%
+  reshape2::dcast(A~B, value.var = "C") %>%
+  tibble::column_to_rownames("A") -> bif_mags_dist
+
+save(bif_mags_dist, file="bif_mags_dist.rda")
+
+#bif_mags_dist %>% as.matrix %>% heatmap()
+
+
+
+
+
+```
+
+
+
+
+```{r}
+library(ggplot2)
+library(ggdendro)
+
+bif_mags_dist %>% as.matrix %>% as.dist() %>% hclust() -> model
+
+
+dhc <- as.dendrogram(model)
+# Rectangular lines
+ddata <- dendro_data(dhc, type = "rectangle")
+```
+
+
+```{r fig.height=5, fig.width=20}
+select_species = c("Bifidobacterium adolescentis","Bifidobacterium breve", "Bifidobacterium catenulatum", "Bifidobacterium longum", "Bifidobacterium bifidum")
+
+ddata$labels %>%
+  mutate(label = label %>% as.character) %>%
+  merge(genome_name_assigned_species_df, by.x="label", by.y="genome_name") %>% 
+   merge(mags_tax_file %>% mutate(genome_name=paste0(genome_name,".fa")) %>% select(-assigned_species), by.x="label", by.y="genome_name"  ) %>%
+  #mutate(assigned_species = assigned_species %>% as.character) %>% 
+  mutate(species = ifelse(assigned_species %in% select_species, assigned_species , "others" )) -> labels
+  #mutate(species = ifelse(completeness < 80, "low quality", species))  
+  
+  
+
+p <- ggplot(segment(ddata)) + 
+  geom_segment(aes(x = x, y = y, xend = xend, yend = yend)) + 
+  geom_point(data = labels, 
+              aes(x = x, y = y, col=species), vjust = 0.5, size = 2) +
+  geom_point(data = labels, 
+              aes(x = x, y = y-0.1, col=completeness>80), vjust = 0.5, size = 2) +
+  theme_dendro() #+
+  #coord_flip() + 
+  #scale_y_reverse(expand = c(0.2, 0))
+p
+
+
+```
+
+## longum mags
+
+
+```{r}
+
+mags_tax_file %>%
+  filter(completeness > 80) %>%
+  filter(assigned_species == "Bifidobacterium longum") %>%
+  pull(genome_name) %>% paste0(.,".fa") -> longum_mags
+
+bif_mags_dist[longum_mags,longum_mags] %>% as.matrix %>% as.dist() %>% hclust() -> model
+
+
+
+dhc <- as.dendrogram(model)
+# Rectangular lines
+ddata <- dendro_data(dhc, type = "rectangle")
+
+
+p <- ggplot(segment(ddata)) + 
+  geom_segment(aes(x = x, y = y, xend = xend, yend = yend)) + 
+  ggtitle("Bifidobacterium longum") +
+  #geom_point(data = labels, 
+  #            aes(x = x, y = y, col=species), vjust = 0.5, size = 2) +
+  #geom_point(data = labels, 
+  #            aes(x = x, y = y-0.1, col=completeness>80), vjust = 0.5, size = 2) +
+  theme_dendro() #+
+  #coord_flip() + 
+  #scale_y_reverse(expand = c(0.2, 0))
+p
+
+
+mags_tax_file %>%
+  filter(completeness > 80) %>%
+  filter(assigned_species == "Bifidobacterium adolescentis") %>%
+  pull(genome_name) %>% paste0(.,".fa") -> longum_mags
+
+bif_mags_dist[longum_mags,longum_mags] %>% as.matrix %>% as.dist() %>% hclust() -> model
+
+
+
+dhc <- as.dendrogram(model)
+# Rectangular lines
+ddata <- dendro_data(dhc, type = "rectangle")
+
+
+p <- ggplot(segment(ddata)) + 
+  geom_segment(aes(x = x, y = y, xend = xend, yend = yend)) + 
+  ggtitle("Bifidobacterium adolescentis") +
+  #geom_point(data = labels, 
+  #            aes(x = x, y = y, col=species), vjust = 0.5, size = 2) +
+  #geom_point(data = labels, 
+  #            aes(x = x, y = y-0.1, col=completeness>80), vjust = 0.5, size = 2) +
+  theme_dendro() #+
+  #coord_flip() + 
+  #scale_y_reverse(expand = c(0.2, 0))
+p
+
+
+mags_tax_file %>%
+  filter(completeness > 80) %>%
+  filter(assigned_species == "Bifidobacterium catenulatum") %>%
+  pull(genome_name) %>% paste0(.,".fa") -> longum_mags
+
+bif_mags_dist[longum_mags,longum_mags] %>% as.matrix %>% as.dist() %>% hclust() -> model
+
+
+
+dhc <- as.dendrogram(model)
+# Rectangular lines
+ddata <- dendro_data(dhc, type = "rectangle")
+
+
+p <- ggplot(segment(ddata)) + 
+  geom_segment(aes(x = x, y = y, xend = xend, yend = yend)) + 
+  ggtitle("Bifidobacterium catelunatum") +
+  #geom_point(data = labels, 
+  #            aes(x = x, y = y, col=species), vjust = 0.5, size = 2) +
+  #geom_point(data = labels, 
+  #            aes(x = x, y = y-0.1, col=completeness>80), vjust = 0.5, size = 2) +
+  theme_dendro() #+
+  #coord_flip() + 
+  #scale_y_reverse(expand = c(0.2, 0))
+p
+
+
+
+mags_tax_file %>%
+  filter(completeness > 80) %>%
+  filter(assigned_species == "Bifidobacterium bifidum") %>%
+  pull(genome_name) %>% paste0(.,".fa") -> longum_mags
+
+bif_mags_dist[longum_mags,longum_mags] %>% as.matrix %>% as.dist() %>% hclust() -> model
+
+
+
+dhc <- as.dendrogram(model)
+# Rectangular lines
+ddata <- dendro_data(dhc, type = "rectangle")
+
+
+p <- ggplot(segment(ddata)) + 
+  geom_segment(aes(x = x, y = y, xend = xend, yend = yend)) + 
+  ggtitle("Bifidobacterium bifidum") +
+  #geom_point(data = labels, 
+  #            aes(x = x, y = y, col=species), vjust = 0.5, size = 2) +
+  #geom_point(data = labels, 
+  #            aes(x = x, y = y-0.1, col=completeness>80), vjust = 0.5, size = 2) +
+  theme_dendro() #+
+  #coord_flip() + 
+  #scale_y_reverse(expand = c(0.2, 0))
+p
+
+
+```
+
+
+
+
+
+
+
+## catenulatum_mags
+
+
+
+```{r}
+
+path = "/home/tapju/storage/actibiome/data-raw/bif_mags/Bifidobacterium_bins/"
+
+mash_cmd="~/bin/mash_bin/mash sketch"
+
+genome_name_assigned_species_df %>%
+  filter(assigned_species == "Bifidobacterium catenulatum") %>% pull(genome_name) -> catenulatum_mags
+
+path_ref = "/home/tapju/storage/actibiome/data-raw/ref_genomes/"
+
+genomes_ref = list.files(path_ref)
+
+
+system(
+  
+  paste(mash_cmd, "-o bif_mags_ref", paste0(path,catenulatum_mags, collapse = " "), paste0(path_ref, genomes_ref, collapse = " "))
+)
+
+mash_result=NULL
+
+for(i in seq_along(c(catenulatum_mags,genomes_ref))) {
+  
+  mash_cmd="~/bin/mash_bin/mash dist"
+  
+  if(i %in% 1:length(catenulatum_mags) ) {
+  
+  tmp=system(
+  
+  paste(mash_cmd, paste0("bif_mags_ref.msh"),  paste0(path,catenulatum_mags[i]) ), intern = TRUE
+  ) } else {
+  
+    tmp=system(
+  
+  paste(mash_cmd, paste0("bif_mags_ref.msh"),  paste0(path_ref,genomes_ref[i-length(catenulatum_mags)]) ), intern = TRUE
+  )
+    
+    
+}
+  
+  
+  
+  mash_result = c(mash_result,tmp)
+  
+  
+}
+
+
+data.frame(mash=mash_result) %>%
+  tidyr::separate(mash, into=LETTERS[1:5], sep = "\t") %>%
+  mutate(A=A%>%gsub(path, "", .) %>% gsub(path_ref,"",.) , B=B%>%gsub(path,"",.) %>% gsub(path_ref,"",.))  -> bif_catenulatum_mags_pairwise_mash_dist
+
+save(bif_catenulatum_mags_pairwise_mash_dist, file="bif_catenulatum_mags_pairwise_mash_dist.rda")
+
+bif_catenulatum_mags_pairwise_mash_dist %>%
+  select(A,B,C) %>%
+  mutate(C=C%>%as.numeric()) %>%
+  group_by(A,B) %>%
+  slice(1) %>%
+  ungroup() %>%
+  reshape2::dcast(A~B, value.var = "C") %>%
+  tibble::column_to_rownames("A") -> bif_catenulatum_mags_dist
+
+save(bif_catenulatum_mags_dist, file="bif_catenulatum_mags_dist.rda")
+
+bif_catenulatum_mags_dist %>% as.matrix %>% as.dist() %>% hclust() %>% plot
+
+
+bif_catenulatum_mags_dist %>% as.matrix %>% dim
+
+bif_catenulatum_mags_dist %>% as.matrix %>% as.dist() %>% ade4::dudi.pco(scannf=F, nf=2) -> bif_catenulatum_pco
+
+
+bif_catenulatum_pco$li %>%
+  ggplot() + geom_point(aes(x=log10(A1),y=log10(A2)))
+  
+  
+
+```
+
+
+
+
+```{r fig.height=4, fig.width=15}
+
+library(ggplot2)
+library(ggdendro)
+
+bif_catenulatum_mags_dist %>% as.matrix %>% as.dist() %>% hclust() -> model
+
+
+dhc <- as.dendrogram(model)
+# Rectangular lines
+ddata <- dendro_data(dhc, type = "rectangle")
+
+ddata$labels %>%
+  mutate(label = label %>% as.character) %>%
+  mutate(type= ifelse(label %in% catenulatum_mags,"MAGS",label)) %>%
+  merge(mags_tax_file %>% mutate(genome_name=paste0(genome_name,".fa")) %>% select(-assigned_species), by.x="label", by.y="genome_name", all.x = TRUE  ) %>%
+  mutate(type = ifelse(grepl("SAMN03253091", label),"pseudolongum",type)) %>%
+  mutate(type = ifelse(grepl("SAMN06621717|SAMD00061042", label),"catenulatum",type)) %>%
+  mutate(type = ifelse(grepl("SAMN03253090|SAMD00061044",label),"kashiwanohense",type)) -> ddata$labels
+
+
+p <- ggplot(segment(ddata)) + 
+  geom_segment(aes(x = x, y = y, xend = xend, yend = yend)) + 
+  geom_point(data = ddata$labels, 
+              aes(x = x, y = y, col=type), vjust = 0.5, size = 2) +
+  geom_point(data = ddata$labels, 
+              aes(x = x, y = y-0.1, col=completeness>80), vjust = 0.5, size = 2) +
+  theme_dendro() #+
+  #coord_flip() + 
+  #scale_y_reverse(expand = c(0.2, 0))
+p
+
+
+
+
+```
+
+
+
