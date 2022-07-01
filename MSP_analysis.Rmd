@@ -1,0 +1,415 @@
+---
+title: "MSP_analysis"
+author: "ruben"
+date: "23/06/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Librairies
+
+```{r,message=F,warning=F}
+
+library(dplyr)
+library(readr)
+library(pheatmap)
+library(data.table)
+library(tidyr)
+library(tibble)
+library("factoextra")
+library("FactoMineR")
+library(RColorBrewer)
+library(tidyverse)
+library(broom)
+
+
+source(file = "functions.R")
+
+```
+
+
+## import MAGS data
+
+```{r,message=F,warning=F}
+
+
+### directory : /lustre/workgroups/microbiome_resources/reference/IGC/annotation
+
+species <- c("Bifidobacterium adolescentis","Bifidobacterium animalis","Bifidobacterium bifidum","Bifidobacterium catenulatum","Bifidobacterium longum","Bifidobacterium pseudocatenulatum")
+
+load("curated_v3_otu_tax.rda")
+
+setwd("/home/tapju/storage/actibiome")
+
+
+## MAGS annotations data, containing completeness, average distance according to a reference genome, etc
+mags_tax_file = readr::read_tsv("data-raw/bif_mags/Bifidobacterium_annotation/annotations_url_metadata_opendata.tsv") %>%
+  filter(assigned_genus=="Bifidobacterium") %>%
+  filter(completeness > 80) %>%
+  select(genome_name,study,sample_name,assigned_species,completeness, average_distance)
+
+
+
+
+## MAGS linked to functions ID's
+mags_tax_gene_id_eggnog <- readr::read_csv2("data-raw/bif_mags/mags_tax_gene_id_eggnog.csv") %>%
+   select(-X1) %>%
+  ## filter the species of interest
+   #filter(grepl("adolescentis|animalis| longum|bifidum|dentium|pseudocatenulatum|catenulatum|animalis", assigned_species)) %>%
+  ### eggnog is linked to several annotations KEGG, CAZy, so we link only 1 annotations for 1 eggnog
+  group_by(eggNOG_OGs) %>%
+  #mutate(KEGG_ko = get_mode(KEGG_ko)) %>%
+  #mutate(CAZy = get_mode(CAZy)) %>%
+  #mutate(EC = get_mode(EC)) %>%
+  ungroup() %>%
+  filter(completeness > 80)
+
+## number of mags per species
+
+nb_mags_species <- mags_tax_file %>%
+  data.frame(.) %>%
+  group_by(assigned_species) %>%
+  summarise(n=n()) %>%
+  filter(grepl("adolescentis|animalis| longum|bifidum|dentium|pseudocatenulatum|catenulatum|animalis", assigned_species))
+nb_mags_species$assigned_species <- gsub("Bifidobacterium","B.",nb_mags_species$assigned_species)
+
+
+```
+
+## import MSP data
+
+```{r,message=F,warning=F}
+
+
+## MSP associated with taxonomy
+MSP_taxonomy <- fread("/lustre/workgroups/microbiome_resources/reference/IGC/annotation/1661_msps.gtdb_r95_taxonomy.tsv")
+
+## contains MSP with KO, EC, eggnog annotations
+## ID = eggNOG_OGs
+msp_file <- fread("test/IGC.eggNOG_v5.0.tsv") %>%
+  dplyr::rename(gene_id = query)
+head(msp_file)
+
+## contains sample, associated with msp module and count
+## ID = sample
+msp_modules_count <- fread("data-raw/MilieuInterieur/MilieuInterieur_samples_msp_module_counts.tsv")
+head(msp_modules_count)
+
+## contains consensus otus (species), sample id, and count
+## ID = sample  OU   `#consensus_taxonomy`
+msp_species_count <- fread("data-raw/MilieuInterieur/MilieuInterieur_df_motus_long.tsv")
+head(msp_species_count)
+
+## contains gene richness per sample and read counts
+## ID = sample  OU   genes_richness_1M
+msp_gene_richness <- fread("data-raw/MilieuInterieur/MilieuInterieur_genes_richness.tsv")
+head(msp_gene_richness)
+
+
+## contains consensus species (whole taxonomy, species, genus, family, ....), sample id, and count for each species
+## s (pour espèce, species)
+
+msp_species_taxonomy_count <- fread("data-raw/MilieuInterieur/MilieuInterieur_samples_species_counts.tsv") %>%
+  ## create a unique name for each row (combination of all taxonomic ranks including species is unique)
+  ## for identifying unique taxa
+  unite("taxa_id", d:s, sep= "|", 
+        remove = FALSE)
+head(msp_species_taxonomy_count)
+
+
+## MSP df contain the count of genes (X1 = gene_id)
+MSP_df <- get(load("data-raw/MilieuInterieur/MilieuInterieur_df_long.rda")) %>%
+  dplyr::rename(gene_id = X1)
+
+
+###
+msp_gene <- fread("/lustre/workgroups/microbiome_resources/reference/IGC/annotation/msp.tsv")
+
+
+## questions : est ce que les espèces consensus de
+# "MilieuInterieur_df_motus_long.tsv"
+# sont les mm que
+# "MilieuInterieur_samples_species_counts.tsv" ?
+
+```
+
+
+## check how we merge this data with curated (eggnogs)
+
+```{r,message=F,warning=F}
+
+eggnogs_msp_merged_eggnog <- msp_file %>%
+  select(eggNOG_OGs, CAZy, EC, KEGG_ko) %>%
+  distinct() %>%
+  merge(mags_tax_gene_id_eggnog %>% select(eggNOG_OGs, CAZy, EC, KEGG_ko) %>% distinct(), by = "eggNOG_OGs", all = FALSE)
+
+
+## merge with full eggNOG_OGs seems to work, but do we lose eggnogs if we merge with full id ?
+
+nrow(eggnogs_msp_merged_eggnog)
+
+length(unique(mags_tax_gene_id_eggnog$eggNOG_OGs))
+
+length(unique(msp_file$eggNOG_OGs))
+
+
+## check if the intersect between : mags_tax_gene_id_eggnog$eggNOG_OGs &
+## msp_file$eggNOG_OGs is equal to eggnogs_msp_merged_eggnog$eggNOG_OGs
+
+
+if (length(intersect(unique(mags_tax_gene_id_eggnog$eggNOG_OGs), unique(msp_file$eggNOG_OGs))) == length(unique(eggnogs_msp_merged_eggnog$eggNOG_OGs))){
+  cat("we can merge MAGS and MSP files on eggNOG_OGs")
+}
+
+```
+
+
+## Phyloseq object
+
+```{r,message=F,warning=F}
+
+## create the taxa table
+
+phy.taxo <- msp_species_taxonomy_count %>%
+  select(-count, -sample) %>%
+  ### create a matrix to prevent redundant taxa_id
+  distinct() %>%
+  column_to_rownames("taxa_id")
+
+## create the otu table
+
+phy.otu <- msp_species_taxonomy_count %>%
+  select(sample, taxa_id, count) %>%
+  reshape2::dcast(taxa_id~sample, value.var = "count", fill=0) %>%
+  column_to_rownames("taxa_id")
+
+## order row according to phy.taxo, transform to otu object
+phy.otu <- phy.otu[match(rownames(phy.taxo),rownames(phy.otu)),] %>%
+  as.matrix() %>%
+  otu_table(taxa_are_rows = TRUE)
+
+## transform to taxa object
+phy.taxo <- phy.taxo %>%
+  as.matrix() %>%
+  tax_table()
+
+## create the phyloseq object
+
+msp.phy <- phyloseq(phy.taxo, phy.otu)
+
+## transform to relative abundance
+
+msp.species.phy.normalized <- microbiome::transform(msp.phy, "compositional")
+
+```
+
+
+## exploratory 
+
+```{r,message=F,warning=F}
+
+## transform to relative abundance
+
+
+
+```
+
+
+## extract tax and otu dataframes + filtering
+
+```{r,message=F,warning=F}
+
+tax_msp <- msp.phy %>%
+  .@tax_table %>%
+  data.frame(.)
+
+count_species_bifido <- msp.phy %>%
+  .@otu_table %>%
+  data.frame(.) %>%
+  ## filter the bifido species only
+  filter(row.names(.) %in% (tax_msp %>% filter(., grepl("Bifidobacterium", g)) %>% rownames(.)))
+
+colnames(count_species_bifido) <- gsub("X", "", colnames(count_species_bifido))
+
+```
+
+###+ filtering
+
+```{r,message=F,warning=F}
+
+count_species_bifido <- count_species_bifido %>%
+  as.matrix()
+
+## select ppl with 0 bifid, they are selected as a no bifid cluster
+
+no_bifid <- count_species_bifido %>%
+  colSums(.) %>%
+  data.frame(sum = .) %>%
+  filter(sum==0) %>%
+  rownames(.)
+
+# filter the count table
+
+count <- count_species_bifido %>%
+  as.data.frame(.) %>%
+  select(-no_bifid)
+
+# colsums equal zero (bacteria not present in any sample) need to be deleted
+
+otu_not_present <- names(which(rowSums(count) == 0))
+
+count <- count %>%
+  filter(!rownames(.) %in% otu_not_present) %>%
+  ## filtering ppl with nb reads < threshold
+  as.matrix(.)
+
+# transform colnames to species name
+
+rownames(count) <- gsub("s__","",tax_msp[rownames(count),]$s)
+
+load("./DMM_files/best_fit_DMM_6clusters")
+
+dim(count)
+
+```
+
+## predict the bifidotype based on DMM model (k = 6)
+
+```{r,message=F,warning=F}
+
+common_species <- intersect(rownames(best@fit$Estimate), rownames(count))
+
+## filter according to common species
+count <- count %>%
+  as.data.frame %>%
+  filter(row.names(.) %in% common_species)
+
+##
+best_fit <- best
+
+## we need to select the common species between count and best fit object (estimate)
+best_fit@fit$Estimate <- best_fit@fit$Estimate %>% as.data.frame %>% filter(row.names(.) %in% common_species) %>% as.matrix
+
+set.seed(1234)
+
+bifidotypes_prediction = predict(best_fit, t(count) , assign = TRUE) %>%
+  data.frame()
+
+
+## create a column which will check which bifidotype corresponds to each subject (maximum of fit score per row)
+
+colnames(bifidotypes_prediction) <- 1:6
+
+
+
+bifidotypes_prediction$assigned_bifidotype = colnames(bifidotypes_prediction)[apply(bifidotypes_prediction, 1, which.max)]
+
+
+bifidotypes_prediction <- bifidotypes_prediction %>%
+  select(assigned_bifidotype) %>%
+  rownames_to_column("sample_id")
+
+```
+## extract eggnogs related phages
+
+```{r,message=F,warning=F}
+
+## transform to relative abundance
+
+eggnogs_related_to_phages <- c("COG0582@1|root,COG0582@2|Bacteria,2HZMA@201174|Actinobacteria,4D0X7@85004|Bifidobacteriales",
+"COG0582@1|root,COG0732@1|root,COG0582@2|Bacteria,COG0732@2|Bacteria,2HUXN@201174|Actinobacteria,4CZ21@85004|Bifidobacteriales",
+"28IBR@1|root,2Z8E5@2|Bacteria,2IF1B@201174|Actinobacteria,4D2Y2@85004|Bifidobacteriales",
+"COG4926@1|root,COG4926@2|Bacteria,2GKQD@201174|Actinobacteria,4CZ3Q@85004|Bifidobacteriales",
+"COG3941@1|root,COG5412@1|root,COG3941@2|Bacteria,COG5412@2|Bacteria,2H75F@201174|Actinobacteria,4CZ35@85004|Bifidobacteriales")
+
+eggnogs_phage <- msp_file %>%
+  filter(eggNOG_OGs %in% eggnogs_related_to_phages) %>%
+  select(eggNOG_OGs) %>%
+  distinct()
+
+print(paste0("the database contains ",nrow(eggnogs_phage)," out of 5 phages eggnogs"))
+
+
+
+```
+
+## extract eggnogs related phages
+
+```{r,message=F,warning=F}
+
+## select the MSP name associated with bifidum species
+
+msp_specific_bifidum <- MSP_taxonomy %>%
+  filter(., grepl("bifidum", gtdb_classification)) %>%
+  .$msp_name %>%
+  as.character
+
+## select msp genes specific to bifidum species
+msp_bifidum <- msp_gene %>%
+  filter(grepl(msp_specific_bifidum, msp_name_module_name))
+
+## for ach of these genes, i want the associated eggnogs
+
+associated_eggnogs <- msp_bifidum %>%
+  select(gene_name) %>%
+  distinct() %>%
+  merge(msp_file %>%
+          select(gene_id, eggNOG_OGs) %>%
+          distinct(),
+        by.x = "gene_name", by.y = "gene_id") %>%
+  ## filter the phage eggnogs
+  filter(eggNOG_OGs %in% eggnogs_related_to_phages)
+
+
+## now we will get the gene counts, of each sample, associated with the phage eggnogs
+
+gene_counts_sample <- MSP_df %>%
+  ## we will make sure there is no duplicate gene per sample by suming the counts
+  #group_by(gene_id, sample) %>%
+  #mutate(count = sum(count)) %>%
+  ungroup() %>%
+  ### normalize the counts per sample (relative counts)
+  group_by(sample) %>%
+  mutate(count = count/sum(count)) %>%
+  ungroup() %>%
+  filter(gene_id %in% associated_eggnogs$gene_name) %>%
+  ## group by sample and do the sum of counts
+  select(-gene_id) %>%
+  group_by(sample) %>%
+  summarise(count_phages= sum(count)) %>%
+  ungroup()
+
+
+### some 0 have been added to gene_counts_sample$sample
+## so the merge only keep 1/2 of the data
+
+gene_counts_sample$sample <- sub("^0+", "", gene_counts_sample$sample)
+
+## now we get the predicted bifidotypes and
+
+bifidotypes_phages <- bifidotypes_prediction %>%
+  merge(gene_counts_sample, by.x = "sample_id", by.y = "sample", all = TRUE) %>%
+  ## replace na values by 0
+  mutate(count_phages = replace_na(count_phages, 0)) %>%
+  ## convert to healthy/unhealthy bifidotypes
+  mutate(grp_healthy = case_when(
+    assigned_bifidotype %in% c(1,2,6) ~ "healthy",
+    TRUE ~ "unhealthy" )) %>%
+  select(grp_healthy, count_phages)
+
+
+```
+
+
+## plot + statistical test
+
+```{r,message=F,warning=F}
+
+
+
+```
+
