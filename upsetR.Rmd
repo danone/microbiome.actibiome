@@ -56,8 +56,7 @@ mags_tax_gene_id_eggnog <- readr::read_csv2("data-raw/bif_mags/mags_tax_gene_id_
   mutate(KEGG_ko = get_mode(KEGG_ko)) %>%
   mutate(CAZy = get_mode(CAZy)) %>%
   mutate(EC = get_mode(EC)) %>%
-  ungroup() %>%
-  filter(completeness > 80)
+  ungroup()
 
 ## number of mags per species
 
@@ -170,14 +169,15 @@ group_by(assigned_species, cazy_family) %>%
 
 ## upsetR on eggnogs
 
-```{r,message=F,warning=F}
+```{r,message=F,warning=F,fig.height=4, fig.width = 10}
+
 
 mags_tax_gene_id_eggnog %>%
   select(assigned_species, eggNOG_OGs) %>%
 group_by(assigned_species, eggNOG_OGs) %>%
   summarise(n=1) %>%
   reshape2::dcast(eggNOG_OGs~assigned_species, value.var = "n", fill=0) %>%
-  UpSetR::upset()
+  UpSetR::upset(nsets = 6)
 
 
 ```
