@@ -1,0 +1,179 @@
+---
+title: "BEAUFORT - Whelan study"
+subtitle: "Code to test some DESeq2 models for the Statistical Analysis Plan - Extract for Julien"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+author: "Aurélie Cotillard"
+output: 
+  html_document:
+    theme: united
+    number_sections: yes
+    toc: yes
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+---
+
+```{css, echo=FALSE}
+pre {
+ max-height: 300px;
+ overflow: auto;
+}
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE, error=TRUE, fig.height=5)
+```
+
+
+# Initializations
+## Sourcing and loading
+```{r}
+## Import librairies
+library(phyloseq)
+library(DESeq2)
+library(glue)
+library(scales)
+library(ComplexHeatmap)
+library(circlize)
+
+## Load mock data
+# OTUs data
+load("C:/Users/cotillau/OneDrive - Danone/Projets/DIAPASON/Data/yoma_otus_Q1_Q2.Rdata")
+phseq_otu_Q1_Q2
+```
+
+
+## Data transformations
+
+```{r}
+# Random subselection
+set.seed(123456)
+temp <- data.frame(sample_data(phseq_otu_Q1_Q2))
+subset_subjects_exp1 <- sample(as.character(temp[temp$exp=="Exp1" & temp$time=="WF","subject_id"]), size=20)
+subset_subjects_exp2 <- sample(as.character(temp[temp$exp=="Exp2" & temp$time=="WF","subject_id"]), size=20)
+subset_subjects <- c(subset_subjects_exp1, subset_subjects_exp2)
+phseq_otu_Q1_Q2 <- subset_samples(phseq_otu_Q1_Q2, subject_id %in% subset_subjects)
+phseq_otu_Q1_Q2
+```
+
+
+
+## Basic filtering steps
+
+```{r}
+# Mean relative abundance >= 0.01% (>=0.0001)
+count_to_prop <- function(x) {return(x/sum(x))}
+phseq_otu_Q1_Q2_temp <- transform_sample_counts(phseq_otu_Q1_Q2, count_to_prop)
+
+taxa_to_keep <- rowSums(otu_table(phseq_otu_Q1_Q2_temp))/ncol(otu_table(phseq_otu_Q1_Q2_temp))>=0.0001
+phseq_otu_Q1_Q2_filter_1 <- prune_taxa(taxa_to_keep, phseq_otu_Q1_Q2)
+
+# Prevalence of remaining otus
+summary(rowSums(otu_table(phseq_otu_Q1_Q2_filter_1)!=0)/ncol(otu_table(phseq_otu_Q1_Q2_filter_1)))
+
+# Prevalence of at least 10%
+taxa_to_keep <- rowSums(otu_table(phseq_otu_Q1_Q2_filter_1)!=0)/ncol(otu_table(phseq_otu_Q1_Q2_filter_1))>=0.10
+phseq_otu_Q1_Q2_filter <- prune_taxa(taxa_to_keep, phseq_otu_Q1_Q2_filter_1)
+phseq_otu_Q1_Q2_filter
+```
+
+
+# Model for Research question 2 – Exploratory
+
+Here we consider that 4-group responder status=group (only 3 groups here).
+
+```{r}
+## Create DESeq2 model
+dds <- phyloseq_to_deseq2(phseq_otu_Q1_Q2_filter, ~ group)
+
+## Test global group effect - LRT test
+dds_mod_lrt <- DESeq(dds, test="LRT", sfType="poscounts", reduced= ~1)
+dds_res_lrt <- results(dds_mod_lrt, alpha = 0.05)
+# Note: log ratios are not useful here, only baseMean, stat, pvalue and adjusted pvalue
+
+# Signif otus to put in the figure
+signif_otus <- rownames(dds_res_lrt[which(dds_res_lrt$padj<0.05),])
+
+## Wald tests
+dds_mod_wld <- DESeq(dds, test="Wald", sfType="poscounts")
+```
+
+Some data preparation for heatmaps.
+
+```{r}
+# Prepare the data table with shrunken logFC
+co = matrix(as.character(combn(unique(data.frame(sample_data(phseq_otu_Q1_Q2_filter))[,"group"]),2)),nrow=2) # Generate pairs of groups
+output_table2 <- matrix(0,ncol=ncol(co),nrow=length(signif_otus))
+rownames(output_table2) <- signif_otus
+colnames(output_table2) <- apply(co,MARGIN=2,paste,collapse="-")
+output_table3 <- output_table2
+for(elem in 1:ncol(co)){ # Loop on comparisons
+  # Perform contrast
+  res_onecomp <- lfcShrink(dds_mod_wld, contrast=c("group", glue("{co[1,elem]}"), glue("{co[2,elem]}")), alpha=0.05, type="ashr")
+  # Extract unadjusted pvalue of genera with significant global effect, and adjust it with BH
+  output_table2[,elem] <- p.adjust(res_onecomp[signif_otus,"pvalue"],method="BH")
+  output_table3[,elem] <- res_onecomp[signif_otus,"log2FoldChange"]
+}
+
+# Order by normalized abundances for logFC and -log10(adj pval)
+data_logFC <- output_table3
+select1 <- rownames(data_logFC)[order(rowMeans(counts(dds_mod_wld,normalized=TRUE))[rownames(data_logFC)],
+                                      decreasing=FALSE)]
+data_logFC <- data_logFC[select1,]
+data_adj_pval <- -log10(output_table2)
+data_adj_pval <- data_adj_pval[select1,]
+```
+
+
+Attempt using the Heatmap function from the ComplexHeatmap package.
+
+```{r, fig.height=8, fig.width=7}
+# Define annotation by family and froze the color code
+taxa <- "Family"
+phylum_info <- data.frame(tax_table(phseq_otu_Q1_Q2_filter))[rownames(data_logFC),]
+phylum_info[[taxa]] <- factor(phylum_info[[taxa]])
+
+annot_taxa <- data.frame(phylum_info[,"Family", drop=FALSE])
+sum(rownames(annot_taxa)==rownames(data_logFC))
+vec_colors <- hue_pal()(length(levels(annot_taxa[[taxa]])))
+names(vec_colors) <- levels(annot_taxa[[taxa]])
+ann_colors = list(Family = vec_colors)
+
+# Barplot annotation (baseMean)
+data_mean <- data.frame(dds_res_lrt)[rownames(data_logFC),"baseMean",drop=FALSE]
+anno = anno_barplot(data_mean, which="row", border=FALSE)
+row_anno_bar <- HeatmapAnnotation(baseMean=anno, which="row", annotation_name_gp=gpar(fontsize=10))
+
+# Taxa annotation
+row_anno_tax <- HeatmapAnnotation(Family=annot_taxa[[taxa]], which="row", col=ann_colors, annotation_name_gp=gpar(fontsize=10))
+
+# Define global colors - Shrinking oultier values as proposed by default in the ComplexHeatmap package
+if (length(unique(data_logFC)) >= 100) {
+  q1 = quantile(abs(data_logFC), 0.99)
+} else {
+  q1 = max(abs(data_logFC))
+}
+col_fun1 = colorRamp2(c(-q1, 0, q1), c("#2166AC", "#EEEEEE", "#B2182B"))
+
+
+#Trying circles with different sizes
+cell_fun3 <- function(j, i, x, y, width, height, fill) {
+  if (data_adj_pval[i, j] > -log10(0.05)) {
+    size <- 0.8*(sqrt(abs(data_adj_pval[i, j]))/max(sqrt(abs(data_adj_pval))))
+    grid.points(x = x, y = y, pch=16, size=unit(size, "char"))
+  }
+}
+
+# Main heatmap
+h <- Heatmap(data_logFC, name="Effect size\nLog2FC", col=col_fun1, clustering_distance_rows = "euclidean", clustering_method_rows = "ward.D2", cluster_columns = FALSE, right_annotation = row_anno_bar, split=5, row_title=NULL, rect_gp = gpar(col="grey", lwd=1), border=TRUE, border_gp=gpar(col="darkgrey", lwd=1), row_names_gp = gpar(fontsize = 10), column_names_gp = gpar(fontsize = 10), row_gap = unit(5, "pt"), cell_fun=cell_fun3, left_annotation = row_anno_tax)
+
+# Additional legends for significance and circle sizes
+lgd_pvalue = Legend(title="Significance\np-value", labels = c("< 0.05"), type = "points", pch = 16, legend_gp = gpar(col = c('#252525')))
+breaks <- pretty(abs(data_adj_pval), n=3)[-1] # Removing "0"
+sizes <- 0.8*(sqrt(breaks)/max(sqrt(abs(data_adj_pval))))
+lgd_size = Legend(title="Evidence\n-log10(p-value)", labels=as.character(breaks), type="points", pch=16, size=unit(sizes,"char"))
+
+# Final graphic
+draw(h, annotation_legend_list = list(lgd_pvalue, lgd_size), merge_legend=TRUE)
+```
+

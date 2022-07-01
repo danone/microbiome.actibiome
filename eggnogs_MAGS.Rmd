@@ -317,28 +317,6 @@ for (parameter in parameters){
         ## filter the species of interest
         filter(assigned_species == one_species) %>%
         gather("eggnog", "presence", -c(parameter, 'assigned_species'))
-  
-  
-      ## eggnog associated with partial variables (associated with only healthy subjects for instance)
-      ## must be deleted for chi squated test
-      eggnog_to_filter <- heat_evaluate_chi_gathered %>%
-        select_("eggnog", parameter, "presence") %>%
-        group_by_("eggnog", parameter, "presence") %>%
-        count_(parameter) %>%
-        ungroup()  %>%
-        select(-n, -presence) %>%
-        group_by(eggnog) %>%
-        count_(parameter) %>%
-        select(-parameter) %>%
-        ungroup()  %>%
-        group_by(eggnog) %>%
-        mutate(n = sum(n)) %>%
-      ## we need to filter eggnogs which have the maximum of :
-      ## 2 (max nb of modalities for parameter presence) * nb of modalities of parameter (2 for healthy-unhealthy)
-        filter(n == 2 * length(levels(factor(mags_tax[[parameter]])))) %>%
-        select(eggnog) %>%
-      .$eggnog %>%
-        unique()
 
       
 
@@ -349,6 +327,40 @@ for (parameter in parameters){
         summarise(prevalence = (sum(presence)/n()))%>%
         ungroup()
       
+      ## create a matrix that will get merged after
+      
+      prevalences_matrix <- prevalences %>%
+        select(-assigned_species) %>%
+        reshape2::dcast(paste("eggnog", "~", parameter), value.var = "prevalence", fill=0) %>%
+        #reshape2::dcast(eggnog~age_category, value.var = "prevalence", fill=0) %>%
+        column_to_rownames("eggnog") %>%
+        rename_all(~ paste0("prevalence_", .x)) %>%
+        mutate(sum_all_prevalence = rowSums(across(where(is.numeric)))) %>%
+        rownames_to_column("eggnog")
+      
+      #eggnog_to_filter, on enlève ceux qui ont 100 ou 0%
+      
+      eggnog_to_filter <- prevalences %>%
+        filter(!prevalence %in% c(0,1)) %>%
+        .$eggnog %>%
+        unique()
+      
+      #eggnog_to_filter, enlever les paramètres associés à une seule modalité
+      
+      #this eggnog has only yes as westernized
+      #28IDW@1|root,2Z8G1@2|Bacteria,2I8P7@201174|Actinobacteria,4D07A@85004|Bifidobacteriales
+      
+      eggnog_one_modality <- heat_evaluate_chi_gathered %>%
+        select_("eggnog",parameter) %>%
+        distinct() %>%
+        select_("eggnog") %>%
+        group_by(eggnog) %>%
+        count_() %>%
+        filter(n==1) %>%
+        select(eggnog) %>%
+        distinct()
+      
+      eggnog_to_filter <- eggnog_to_filter[!eggnog_to_filter %in% eggnog_one_modality$eggnog]
       
   ##
       heat_evaluate_chi_gathered <- heat_evaluate_chi_gathered %>%
@@ -380,32 +392,49 @@ for (parameter in parameters){
         ## which parameter we compared
         mutate(variable = c(parameter)) %>%
         ## which modalities have this parameters
-        mutate(variable_modalities = modalities_vec)%>%
+        mutate(variable_modalities = modalities_vec) %>%
         ungroup()
       
+      if (nrow(dim) > 0) {
+        dim <- dim %>%
+          mutate(p.value = p.value %>% p.adjust(method="fdr"))
+        }
+      
+      ### we add the 100% and 0% eggnog but without 
+      
+      eggnog_not_in_chi <- prevalences %>%
+        filter(!eggnog %in% eggnog_to_filter) %>%
+        select(assigned_species, eggnog) %>%
+        mutate(statistic = "-",
+               p.value = 1,
+               method = "-",
+               variable = parameter,
+               variable_modalities = modalities_vec
+               )
+      
+      dim_after <- dim %>%
+        rbind(eggnog_not_in_chi %>%
+                filter(!eggnog %in% dim$eggnog))
       
       ### add the prevalences per modality
       
-      for (modality in modalities){
-        
-        dim <- dim %>%
-          inner_join(prevalences %>%
-                  filter(!!sym(parameter) == c((modality))) %>%
-                    select(-!!sym(parameter)), by = c("assigned_species", "eggnog")) %>%
-          distinct() %>%
-          ## change the column name to prev_modality.name
-          rename_at("prevalence", ~ paste0("prevalence_", modality))
-        
-      }
+      dim_after <- dim_after %>%
+        inner_join(prevalences_matrix, by = c("eggnog")) %>%
+        ## filter the eggnog which have a prevalence =0 everywhere
+        filter(sum_all_prevalence != 0) %>%
+        select(-sum_all_prevalence) %>%
+        distinct()
       
-      if (nrow(dim) > 0) {
+      
+      
+      if (nrow(dim_after) > 0) {
         ## if the species is linked to at least 1 eggnog
-        data_chi_species[[i]] <- dim
+        data_chi_species[[i]] <- dim_after
+        ## filter the value which have 0 everywhere prevalence
         
         
         }
     
-
     }
     
       data_paramaters <- bind_rows(data_chi_species, .id = "column_label") %>%
@@ -413,8 +442,7 @@ for (parameter in parameters){
     ## merge the eggnog biological description for interpretation
     inner_join(mags_tax_gene_id_eggnog %>% dplyr::rename("eggnog" = "eggNOG_OGs") %>% select(eggnog, Description, EC, KEGG_ko, CAZy), by = "eggnog") %>%
     ungroup() %>%
-    distinct() %>%
-        mutate(p.value = p.value %>% p.adjust(method="fdr"))
+    distinct()
       
       assign(paste0("data_",parameter), data_paramaters)
       

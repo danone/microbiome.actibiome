@@ -127,7 +127,6 @@ seeds_list_name = paste0("seeds_", which_study)
 dat <- abundances(pseq)
 count_raw <- as.matrix(t(dat))
 
-dat
 
 # rowsums equal zero (sample with 0 count everywhere) need to be deleted
 
@@ -312,6 +311,16 @@ if (length(index) > 0){
 fit <- fit_genus_list[[index]]
 
 best <- fit[[which.min(unlist(bic[[index]]))]]
+
+
+## save best
+
+name_best <- paste0("./DMM_files/best_fit_DMM_", which_study)
+
+if(!name_best %in% list.files("./DMM_files/")){
+  
+  save(best, file = name_best)
+}
 
 ## best is the best model based on BIC criteria
 
@@ -896,5 +905,54 @@ print(paste0('le nombre de healthy-healthy dans curation est : ',nrow(healthy_he
 
 ```
 
+## "validation interne"
+
+```{r,message=F,warning=F}
+
+load("DMM_files/best_fit_DMM_6clusters")
+
+# we will check the predict funtion on the learning set, is it coherent with the enterotype file ?
+
+best_fit <- best
+
+count_learning_set <- count
+
+## we need to select the common species between count and best fit object (estimate)
+best_fit@fit$Estimate <- best_fit@fit$Estimate %>% as.data.frame %>% filter(row.names(.) %in% colnames(count_learning_set)) %>% as.matrix
 
 
+predict_df <- predict(best_fit, count_learning_set, assign=TRUE) %>%
+  as.data.frame
+
+colnames(predict_df) <- 1:6
+
+## create a column which will check which bifidotype corresponds to each subject (maximum of fit score per row)
+
+predict_df$assigned_bifidotype = colnames(predict_df)[apply(predict_df, 1, which.max)]
+
+
+predict_df
+
+predict_df <- predict_df %>%
+  select(assigned_bifidotype) %>%
+  rownames_to_column("sample_id")
+
+## check the bifido file, join the two
+enterotype
+
+test_join <- predict_df %>%
+  inner_join(enterotype, by = "sample_id")
+
+test_join
+
+if (setequal(test_join$assigned_bifidotype,test_join$bifidotype)){
+  
+  print("OK - prediction on learning set corresponds to clustering results")
+  
+}else{
+  
+  print("warning ! - prediction on learning set DOES NOT correspond to clustering results")
+  
+}
+
+```
