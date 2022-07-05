@@ -1,0 +1,338 @@
+---
+title: "DMM_MSP"
+author: "ruben"
+date: "05/07/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Librairies
+
+```{r,message=F,warning=F}
+
+library(data.table)
+library(devtools)
+library(microbiome)
+library(DirichletMultinomial)
+library(reshape2)
+library(magrittr)
+library(phyloseq)
+library(dplyr)
+library(tibble)
+library(rstatix)
+library(ggpubr)
+library(ggplot2)
+library(tidyverse)
+library("readxl")
+library("optparse")
+library(varhandle)
+library(tidyr)
+library("stringr")
+
+library(gplots)
+
+source(file = "functions.R")
+
+setwd("/home/ladeirru/GitHub/microbiome.actibiome")
+
+```
+
+
+## Import MSP data
+
+```{r,message=F,warning=F}
+
+
+## we need taxa counts and metadata
+msp_species_taxonomy_count <- fread("data-raw/MilieuInterieur/MilieuInterieur_samples_species_counts.tsv") %>%
+  ## create a unique name for each row (combination of all taxonomic ranks including species is unique)
+  ## for identifying unique taxa
+  unite("taxa_id", d:s, sep= "|", 
+        remove = FALSE)
+head(msp_species_taxonomy_count)
+
+
+## import some metadata
+
+
+metadata_mutrition_msp <- read_excel("MI_metadata_extraction.xlsx")
+
+sample_metadata_msp <- read_excel("sample_metadata_msp.xlsx")
+
+
+```
+
+
+## Phyloseq object
+
+```{r,message=F,warning=F}
+
+## create the taxa table
+
+phy.taxo_df <- msp_species_taxonomy_count %>%
+  select(-count, -sample) %>%
+  ### create a matrix to prevent redundant taxa_id
+  distinct() %>%
+  column_to_rownames("taxa_id")
+
+## create the otu table
+
+phy.otu <- msp_species_taxonomy_count %>%
+  select(sample, taxa_id, count) %>%
+  reshape2::dcast(taxa_id~sample, value.var = "count", fill=0) %>%
+  column_to_rownames("taxa_id")
+
+## order row according to phy.taxo, transform to otu object
+phy.otu <- phy.otu[match(rownames(phy.taxo),rownames(phy.otu)),] %>%
+  as.matrix() %>%
+  otu_table(taxa_are_rows = TRUE)
+
+## transform to taxa object
+phy.taxo <- phy.taxo_df %>%
+  as.matrix() %>%
+  tax_table()
+
+## create the phyloseq object
+
+msp.phy <- phyloseq(phy.taxo, phy.otu)
+
+## transform to relative abundance
+
+msp.species.phy.normalized <- microbiome::transform(msp.phy, "compositional")
+
+```
+
+
+## Pre process for building DMM
+
+```{r,message=F,warning=F}
+
+## convert taxa id to unique species name
+
+count <- abundances(msp.phy) %>%
+  data.frame %>%
+  filter(row.names(.) %in% (phy.taxo_df %>% filter(., grepl("Bifidobacterium", g)) %>% rownames(.)))
+
+## change taxa names to species name
+
+rownames(count) <- gsub(".*s__","",rownames(count))
+
+## taxa names must be in columns
+
+count <- count %>%
+  t
+
+```
+
+## Code à faire marcher la nuit
+
+```{r,message=F,warning=F}
+
+## maximum number of cluster to test
+max_n = 15
+
+fit_genus_list = vector("list",5)
+
+dmm_name <- "DMM_msp"
+seeds_list_name <- "seeds_msp"
+
+set.seed(1234)
+seeds=sample(1:1000, 5)
+
+
+if(!(dmm_name %in% list.files("./DMM_files/")) & !(seeds_list_name %in% list.files())) {
+
+  for(i in 1:5) {
+
+    set.seed(seeds[i])
+
+    fit_genus <- mclapply(1:max_n, dmn, count=count, verbose=FALSE, mc.cores=10)
+
+    fit_genus_list[[i]] = fit_genus
+    
+    print(i)
+
+  }
+  
+  save(fit_genus_list, file=paste0("./DMM_files/", dmm_name))
+  
+  save(seeds, file = paste0("./DMM_files/", seeds_list_name))
+
+} else {
+  load(paste0("./DMM_files/", dmm_name))
+  load(paste0("./DMM_files/", seeds_list_name))
+  }
+
+
+# collect scores to find the best fit
+lplc = vector("list",5)
+bic <- vector("list",5)
+aic <- vector("list",5)
+
+for(i in 1:5) {
+
+  
+  lplc[[i]] <- base::sapply(fit_genus_list[[i]], DirichletMultinomial::laplace)
+
+  aic[[i]]  <- base::sapply(fit_genus_list[[i]], DirichletMultinomial::AIC)
+
+  bic[[i]]  <- base::sapply(fit_genus_list[[i]], DirichletMultinomial::BIC)
+
+}
+
+```
+
+## Model fit
+
+```{r,message=F,warning=F}
+
+## we will take the number k for each model and for each method
+
+list_k <- vector("list",max_n)
+
+for (i in 1:5) {
+  
+  seed_experiment <-seeds[[i]]
+  
+  list_k[[i]] <- c("lplc", rank(lplc[[i]]), seed_experiment)
+  
+  list_k[[i+5]] <- c("aic", rank(aic[[i]]), seed_experiment)
+  
+  list_k[[i+10]] <- c("bic", rank(bic[[i]]), seed_experiment)
+  
+  print(i)
+  
+}
+
+test <- data.frame(t(as.data.frame(list_k)))
+
+rownames(test) <- NULL
+
+colnames(test) <- c("method", 1:max_n, "seed")
+
+
+test_unfactored <- test %>%
+  select('1':max_n) %>%
+  varhandle::unfactor(.) %>%
+  cbind(method = test$method, . , seed = test$seed)
+rownames(test_unfactored) <- NULL
+  
+
+## calcul des rangs moyens
+
+mean_rank <- test_unfactored %>%
+  select(-seed) %>%
+  group_by(method) %>%
+  summarise_all(mean) %>%
+  gather(., key="k", value="mean_rank", '1':max_n)
+
+```
+
+
+## Plot des rangs moyens
+
+```{r,message=F,warning=F}
+
+ggplot(mean_rank) +
+  geom_line(aes(x=k, y=mean_rank, group=method, color =method)) +
+  theme_minimal() +
+  scale_x_discrete(limits = as.character(1:max_n))
+
+```
+## we choose the first local minimum, k = 5
+
+```{r,message=F,warning=F}
+
+
+## k to select is the minimum for BIC
+
+k_BIC <- mean_rank %>%
+  filter(method == "bic") %>%
+  filter(mean_rank == min(.$mean_rank)) %>%
+  select(k) %>%
+  as.numeric(.)
+
+## force k <- 5
+
+k_BIC <- 5
+
+## we select k=6 with BIC method
+
+model_k <- vector("list",5)
+
+for (i in 1:5) {
+  model_k[[i]] <- which(bic[[i]] == min(bic[[i]]))
+}
+
+index <- which(abs(as.data.frame(model_k) - k_BIC) == min(abs(as.data.frame(model_k) - k_BIC)) )
+
+## the model 1 is the best fit model
+
+
+if (length(index) > 0){
+  ## if several models has a min corresponding to the mean rank
+  ## choose a random model
+  
+  index <- sample(index, 1)
+  
+  }
+
+fit <- fit_genus_list[[index]]
+
+best <- fit[[k_BIC]]
+
+
+### save the best_fit
+
+
+name_best <- "./DMM_files/best_fit_DMM_msp"
+
+if(!name_best %in% list.files("./DMM_files/")){
+  
+  save(best, file = name_best)
+}
+
+```
+
+
+## estimate enterotypes de novo
+
+```{r,message=F,warning=F}
+
+## sample component assignments
+
+model <- apply(mixture(best), 1, which.max)
+
+
+if(!"model_DMM_msp" %in% list.files("./DMM_files/")){
+
+  save(model, file="./DMM_files/model_DMM_msp")
+  
+  }
+
+## write the enterotype file
+
+bifidotype <- data.frame(bifidotype = model)
+
+bifidotype <- bifidotype %>%
+  rownames_to_column("sample_id")
+
+if(!"model_DMM_msp" %in% list.files()){
+  
+  write.csv(bifidotype, file="enterotype_DMM_msp", row.names=TRUE, col.names=TRUE, quote=FALSE)
+  
+}
+
+bifidotype <- fread("enterotype_DMM_msp") %>%
+  column_to_rownames("V1")
+
+bifidotype$bifidotype <- as.character(bifidotype$bifidotype)
+
+```
+
+
+
+
