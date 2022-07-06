@@ -1,0 +1,544 @@
+---
+title: "bif_rda_analysis"
+author: "ruben"
+date: "09/06/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Librairies
+
+```{r,message=F,warning=F}
+
+library(dplyr)
+library(readr)
+library(pheatmap)
+library(data.table)
+library(tidyr)
+library(tibble)
+library("factoextra")
+library("FactoMineR")
+library(RColorBrewer)
+library(tidyverse)
+library(broom)
+
+
+source(file = "functions.R")
+
+```
+
+## import data
+
+```{r,message=F,warning=F}
+
+load("bif_mags_dist.rda")
+
+# name : bif_mags_dist
+
+colnames(bif_mags_dist) <- gsub("\\.fa", "", colnames(bif_mags_dist))
+  
+rownames(bif_mags_dist) <- gsub("\\.fa", "", rownames(bif_mags_dist))
+
+load("curated_v3_otu_tax.rda")
+
+mags_tax_gene_id_eggnog <- readr::read_csv2("data-raw/bif_mags/mags_tax_gene_id_eggnog.csv") %>%
+   select(-X1) %>%
+  ## filter the species of interest
+  filter(grepl("adolescentis|animalis| longum|bifidum|dentium|pseudocatenulatum|catenulatum|animalis", assigned_species)) %>%
+  ### eggnog is linked to several annotations KEGG, CAZy, so we link only 1 annotations for 1 eggnog
+  group_by(eggNOG_OGs) %>%
+  mutate(KEGG_ko = get_mode(KEGG_ko)) %>%
+  mutate(CAZy = get_mode(CAZy)) %>%
+  mutate(EC = get_mode(EC)) %>%
+  ungroup() %>%
+  filter(completeness > 80)
+
+
+
+mags_tax_file = readr::read_tsv("data-raw/bif_mags/Bifidobacterium_annotation/annotations_url_metadata_opendata.tsv") %>%
+  filter(assigned_genus=="Bifidobacterium") %>%
+  filter(completeness > 80) %>%
+  filter(grepl("adolescentis|animalis| longum|bifidum|dentium|pseudocatenulatum|catenulatum|animalis", assigned_species)) %>%
+  select(genome_name,study,sample_name,assigned_species,completeness, average_distance)
+
+sample_data <- sampleMetadata
+
+## if one ppl has several samples, keep the sample with the highest nb of reads
+sample_unique <- unique(setDT(sample_data)[order(subject_id, -number_reads)], by = "subject_id")
+
+sample <- sample_unique %>%
+   ## transform disease and westernized to good format
+   transform_disease(.) %>%
+   transform_westernized(.) %>%
+   select(sample_id, body_site, disease, age_category, gender, country, westernized, BMI, antibiotics_current_use)
+
+```
+
+## prepare annotation table
+
+```{r,message=F,warning=F}
+
+bif_mags_dist_annotations <- mags_tax_file %>%
+  select(genome_name, sample_name, assigned_species) %>%
+  merge(., sample %>% select(sample_id, disease, age_category, westernized) , by.x = "sample_name", by.y = "sample_id") %>%
+  distinct()
+
+```
+
+## select only species of interest + completeness > 80%
+
+```{r,message=F,warning=F}
+
+unique_mags <- unique(bif_mags_dist_annotations$genome_name)
+
+bif_mags_dist_dt <- bif_mags_dist %>%
+  select(matches(unique(bif_mags_dist_annotations$genome_name))) %>%
+  filter(rownames(.) %in% unique(bif_mags_dist_annotations$genome_name)) %>%
+  select(rownames(.))
+
+##reorder columns as rownames
+bif_mags_dist_dt <- bif_mags_dist_dt[,rownames(bif_mags_dist_dt)]
+
+
+```
+
+
+## filter the data to check the high distances genomes, delete the high distance genome
+
+```{r,message=F,warning=F, fig.height=7, fig.width = 8}
+
+bif_mags_dist_dt_filtered <- bif_mags_dist_dt %>%
+  rownames_to_column("mags_a") %>%
+  gather("mags_b","distance", -1) %>%
+  filter(distance > 0.8)
+
+bif_mags_dist_dt_filtered
+
+mags_to_delete <- union(bif_mags_dist_dt_filtered$mags_a,bif_mags_dist_dt_filtered$mags_b)
+
+
+
+```
+
+
+## plot pheatmap
+
+```{r,message=F,warning=F, fig.height=7, fig.width = 8}
+
+
+bif_mags_ft <- bif_mags_dist_dt %>%
+  select(-mags_to_delete ) %>%
+  filter(!row.names(.) %in% mags_to_delete)
+
+pheatmap(bif_mags_ft,
+         show_colnames = FALSE, show_rownames = FALSE,
+         annotation_row = bif_mags_dist_annotations %>%
+           #select(-sample_name) %>% column_to_rownames("genome_name"),
+           select(assigned_species, genome_name) %>% column_to_rownames("genome_name"),
+         annotation_col = bif_mags_dist_annotations %>%
+           #select(-sample_name) %>% column_to_rownames("genome_name"))
+           select(assigned_species, genome_name) %>% column_to_rownames("genome_name"))
+```
+
+
+## plot pheatmap per species
+
+```{r,message=F,warning=F, fig.height=7, fig.width = 8}
+
+
+species <- c("Bifidobacterium adolescentis","Bifidobacterium animalis","Bifidobacterium bifidum","Bifidobacterium catenulatum","Bifidobacterium longum","Bifidobacterium pseudocatenulatum")
+
+
+for (one_species in species){
+  
+  ## which mags are assigned to one_species ?
+  
+  mags_assigned_to_one_species <- bif_mags_dist_annotations %>%
+    filter(assigned_species == one_species) %>%
+    .$genome_name
+  
+  
+  bif_mags_one_species <- bif_mags_dist_dt %>%
+    select(mags_assigned_to_one_species) %>%
+    filter(row.names(.) %in% mags_assigned_to_one_species)
+  
+  pheatmap(bif_mags_one_species,
+           main = paste0(one_species),
+         show_colnames = FALSE, show_rownames = FALSE,
+         annotation_row = bif_mags_dist_annotations %>%
+           select(-sample_name, -assigned_species, -westernized) %>% column_to_rownames("genome_name"),
+           #select(assigned_species, genome_name) %>% column_to_rownames("genome_name"),
+         annotation_col = bif_mags_dist_annotations %>%
+           select(-sample_name, -assigned_species, -westernized) %>% column_to_rownames("genome_name"))
+           #select(assigned_species, genome_name) %>% column_to_rownames("genome_name"))
+  
+}
+
+
+```
+
+## plot pheatmap per species
+
+```{r,message=F,warning=F, fig.height=7, fig.width = 8}
+
+
+mags_tax_not_filtered <- readr::read_tsv("data-raw/bif_mags/Bifidobacterium_annotation/annotations_url_metadata_opendata.tsv") %>%
+  ungroup() %>%
+  group_by(sample_name) %>%
+  count(assigned_species)
+
+max(mags_tax_not_filtered$n)
+
+```
+
+
+## prepare bifidum mash heatmap
+
+```{r,message=F,warning=F, fig.height=7, fig.width = 8}
+
+one_species <- "Bifidobacterium bifidum"
+
+## are the clusters observed in bifidum associated with the phage signal observed differentially in
+## healthy/unhealthy bifidotypes ?
+
+## load bifidotypes file
+
+bifido <- fread("enterotype_DMM") %>%
+   select(-V1) %>%
+   mutate(grp_healthy = case_when(
+    bifidotype %in% c(1,2,6) ~ "healthy",
+    TRUE ~ "unhealthy"
+  ))
+
+## are the clusters observed in bifidum associated with the phage signal differentially present in
+## healthy/unhealthy bifidotypes ?
+bif_mags_dist_annotations <- mags_tax_file %>%
+  select(genome_name, sample_name, assigned_species) %>%
+  merge(., sample %>% select(sample_id, disease, age_category, westernized) , by.x = "sample_name", by.y = "sample_id") %>%
+  mutate(disease = case_when(disease %in% c("Control") ~ "healthy",TRUE ~ "unhealthy")) %>%
+  merge(bifido %>% select(-bifidotype), by.x = "sample_name", by.y = "sample_id", all.x = TRUE) %>%
+  distinct()
+  
+  
+
+mags_assigned_to_one_species <- bif_mags_dist_annotations %>%
+  filter(assigned_species == one_species) %>%
+  .$genome_name
+  
+  
+bif_mags_one_species <- bif_mags_dist_dt %>%
+  select(mags_assigned_to_one_species) %>%
+  filter(row.names(.) %in% mags_assigned_to_one_species)
+
+```
+
+## bifidum mash heatmap
+
+```{r,message=F,warning=F, fig.height=7, fig.width = 8}
+
+
+test <- bif_mags_dist_annotations %>%
+  select(-sample_name, -assigned_species, -westernized, -disease, -age_category) %>%
+  column_to_rownames("genome_name")
+
+pheatmap(bif_mags_one_species,
+         clustering_method = "ward.D",
+         main = paste0(one_species),
+         show_colnames = FALSE, show_rownames = FALSE,
+         annotation_row = bif_mags_dist_annotations %>%
+           select(-sample_name, -assigned_species, -westernized, -disease, -age_category) %>% column_to_rownames("genome_name"),
+           #select(grp_healthy, genome_name) %>% column_to_rownames("genome_name"),
+           #select(assigned_species, genome_name) %>% column_to_rownames("genome_name"),
+         annotation_col = bif_mags_dist_annotations %>%
+           #select(grp_healthy, genome_name)) %>% column_to_rownames("genome_name"))
+           select(-sample_name, -assigned_species, -westernized, -disease, -age_category) %>% column_to_rownames("genome_name"))
+           #select(assigned_species, genome_name) %>% column_to_rownames("genome_name"))
+
+## eggnogs with p.value < 1%, which means they are differentially present/absent in healthy/unhealthy
+## subjects (bifidotypes) in bifidum mags
+
+```
+
+
+## bifidum mash heatmap
+
+```{r,message=F,warning=F, fig.height=7, fig.width = 8}
+
+## eggnogs with p.value < 1%, which means they are differentially present/absent in healthy/unhealthy
+## subjects (bifidotypes) in bifidum mags
+
+eggnogs_related_to_phages <- c("COG0582@1|root,COG0582@2|Bacteria,2HZMA@201174|Actinobacteria,4D0X7@85004|Bifidobacteriales",
+"COG0582@1|root,COG0732@1|root,COG0582@2|Bacteria,COG0732@2|Bacteria,2HUXN@201174|Actinobacteria,4CZ21@85004|Bifidobacteriales",
+"28IBR@1|root,2Z8E5@2|Bacteria,2IF1B@201174|Actinobacteria,4D2Y2@85004|Bifidobacteriales",
+"COG4926@1|root,COG4926@2|Bacteria,2GKQD@201174|Actinobacteria,4CZ3Q@85004|Bifidobacteriales",
+"COG3941@1|root,COG5412@1|root,COG3941@2|Bacteria,COG5412@2|Bacteria,2H75F@201174|Actinobacteria,4CZ35@85004|Bifidobacteriales")
+
+## calculate the prevalence of these eggnogs in mags
+
+test <- mags_tax_gene_id_eggnog %>%
+  select(genome_name, eggNOG_OGs) %>%
+  filter(eggNOG_OGs %in% eggnogs_related_to_phages) %>%
+  group_by(genome_name, eggNOG_OGs) %>%
+  distinct() %>%
+  summarise(n=1) %>%
+  reshape2::dcast(eggNOG_OGs~genome_name, value.var = "n", fill=0) %>%
+  column_to_rownames("eggNOG_OGs") %>%
+  gather("genome_name", "presence") %>%
+  ungroup() %>%
+  group_by(genome_name) %>%
+  summarise(prevalence_phage = (sum(presence)/n())) %>%
+  ## add bifidotypes
+  merge(bif_mags_dist_annotations, by="genome_name", all.x = TRUE) %>%
+  select(genome_name, grp_healthy, prevalence_phage) %>%
+  column_to_rownames("genome_name")
+
+
+```
+
+## bifidum mash heatmap
+
+```{r,message=F,warning=F, fig.height=7, fig.width = 8}
+
+pheatmap(bif_mags_one_species,
+         clustering_method = "ward.D",
+         main = paste0(one_species),
+         show_colnames = FALSE, show_rownames = FALSE,
+         annotation_row = test,
+         annotation_col = test)
+
+
+
+```
+
+
+## predict the bifidotypes of ppl which don't have bifidotypes in metadata
+
+```{r,message=F,warning=F, fig.height=7, fig.width = 8}
+
+load("curated_v3_otu_tax.rda")
+
+otu_full <- OTU %>%
+  data.frame(.)
+
+tax_full <- TAX %>%
+  data.frame(.)
+
+sample <- sampleMetadata %>%
+  select(sample_id, subject_id, antibiotics_current_use, disease, body_site, age_category, non_westernized)
+
+### import DMM model based on 6 clusters
+
+```
+
+## predict the bifidotypes of ppl which don't have bifidotypes in metadata
+
+```{r,message=F,warning=F, fig.height=7, fig.width = 8}
+
+## load best_fit from dmm and bifidotypes
+
+load("DMM_files/best_fit_DMM_6clusters")
+
+bifido <- fread("enterotype_DMM") %>%
+   select(-V1)
+
+## filter the count table
+
+count <- otu_full %>%
+  ## filter bifid species only
+  filter(row.names(.) %in% (tax_full %>% filter(Genus == "Bifidobacterium") %>% rownames(.))) %>%
+  ## select ppl who are not used in the learning set
+  select(-bifido$sample_id) %>%
+  t() %>%
+  as.matrix()
+
+# Pick the OTU count matrix
+# and convert it into samples x taxa format
+dat <- count
+count_raw <- as.matrix(t(dat))
+
+# rowsums equal zero (sample with 0 count everywhere) need to be deleted
+
+sample_low_reads <- names(which(rowSums(count_raw) <= 500))
+
+
+## select ppl with 0 bifid, they are selected as a no bifid cluster
+
+no_bifid <- count_raw %>%
+  colSums(.) %>%
+  data.frame(sum = .) %>%
+  filter(sum==0) %>%
+  rownames(.)
+
+# filter the count table
+
+count <- count_raw %>%
+  as.data.frame(.) %>%
+  select(-no_bifid)
+
+# colsums equal zero (bacteria not present in any sample) need to be deleted
+
+otu_not_present <- names(which(rowSums(count) == 0))
+
+count <- count %>%
+  filter(!rownames(.) %in% otu_not_present) %>%
+  ## filtering ppl with nb reads < threshold
+  filter(!row.names(.) %in% sample_low_reads) %>%
+  as.matrix(.)
+
+# transform colnames to species name
+
+rownames(count) <- get_species(as.data.frame(tax_full),rownames(count))
+
+load("./DMM_files/best_fit_DMM_6clusters")
+
+nrow(count)
+
+
+tax_full %>%
+  filter(Genus == "Bifidobacterium") %>%
+  rownames(.)
+
+```
+
+## process for predicting bifidotypes
+
+```{r,message=F,warning=F, fig.height=7, fig.width = 8}
+## we need to select the common species in fit$estimate
+
+
+common_species <- intersect(rownames(best@fit$Estimate), rownames(count))
+
+## filter according to common species
+count <- count %>%
+  as.data.frame %>%
+  filter(row.names(.) %in% common_species)
+
+
+
+best_fit <- best
+
+
+bifidotypes_prediction = predict(best, t(count) , assign = TRUE)
+
+
+
+####
+
+best_fit <- best
+
+count_learning_set <- count %>%
+  t %>%
+  as.data.frame
+
+## we need to select the common species between count and best fit object (estimate)
+best_fit@fit$Estimate <- best_fit@fit$Estimate %>% as.data.frame %>% filter(row.names(.) %in% common_species) %>% as.matrix
+
+
+predict_df <- predict(best_fit, count_learning_set, assign=TRUE) %>%
+  as.data.frame
+
+
+colnames(predict_df) <- 1:6
+
+## create a column which will check which bifidotype corresponds to each subject (maximum of fit score per row)
+
+predict_df$assigned_bifidotype = colnames(predict_df)[apply(predict_df, 1, which.max)]
+
+
+bifido_other_sample <- predict_df %>%
+  select(assigned_bifidotype) %>%
+  dplyr::rename(bifidotype = assigned_bifidotype) %>%
+  rownames_to_column("sample_id")
+
+
+## we will add this to the bifidotypes file and create a full bifidotype on "all" samples (samples which are unique + most reads)
+
+bifido_whole <- bifido_other_sample %>%
+  rbind(bifido)
+
+
+### we need to add the ppl who are part of the bifidotypes 7 (no bifidobacterium reads)
+
+cluster_7 <- colnames(otu_full) %>%
+  data.frame(sample_id = .) %>%
+  filter(!sample_id %in% bifido_whole$sample_id) %>%
+  mutate(bifidotype = 7)
+
+bifido_whole <- bifido_whole %>%
+  rbind(cluster_7)
+
+
+```
+
+## process for predicting bifidotypes
+
+```{r,message=F,warning=F, fig.height=7, fig.width = 8}
+
+### we will check the number of each bifidotype assigned
+
+predict_df %>%
+  select(assigned_bifidotype) %>%
+  group_by(assigned_bifidotype) %>%
+  summarise(no_rows = length(assigned_bifidotype))
+
+
+```
+
+
+## we will add the predicted values so that the heatmap is completed !
+
+```{r,message=F,warning=F, fig.height=7, fig.width = 8}
+
+## classify as healthy/unhealthy bifidotypes
+
+bifido_whole <- bifido_whole %>%
+   mutate(grp_healthy = case_when(
+    bifidotype %in% c(1,2,6) ~ "healthy",
+    TRUE ~ "unhealthy"
+  ))
+
+### we will complete the bif_mags_dist_annotations file with new bifidotypes
+
+bif_mags_dist_annotations_completed <- bif_mags_dist_annotations %>%
+  select(-grp_healthy) %>%
+  merge(bifido_whole %>% dplyr::rename(sample_name = sample_id), by = "sample_name")
+
+
+### prepare heatmap annotation
+
+
+test <- mags_tax_gene_id_eggnog %>%
+  select(genome_name, eggNOG_OGs) %>%
+  filter(eggNOG_OGs %in% eggnogs_related_to_phages) %>%
+  group_by(genome_name, eggNOG_OGs) %>%
+  distinct() %>%
+  summarise(n=1) %>%
+  reshape2::dcast(eggNOG_OGs~genome_name, value.var = "n", fill=0) %>%
+  column_to_rownames("eggNOG_OGs") %>%
+  gather("genome_name", "presence") %>%
+  ungroup() %>%
+  group_by(genome_name) %>%
+  summarise(prevalence_phage = (sum(presence)/n())) %>%
+  ## add bifidotypes
+  merge(bif_mags_dist_annotations_completed, by="genome_name", all.x = TRUE) %>%
+  select(genome_name, grp_healthy, prevalence_phage) %>%
+  column_to_rownames("genome_name")
+
+
+```
+
+## we will add the predicted values so that the heatmap is completed !
+
+```{r,message=F,warning=F, fig.height=7, fig.width = 8}
+
+pheatmap(bif_mags_one_species,
+         clustering_method = "ward.D",
+         main = paste0(one_species),
+         show_colnames = FALSE, show_rownames = FALSE,
+         annotation_row = test,
+         annotation_col = test)
+
+```

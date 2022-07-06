@@ -1,0 +1,185 @@
+---
+title: "upsetR"
+author: "ruben"
+date: "08/06/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Librairies
+
+```{r,message=F,warning=F}
+
+library(dplyr)
+library(readr)
+library(data.table)
+library(tidyr)
+library(tibble)
+library(tidyverse)
+library(UpSetR)
+
+
+source(file = "functions.R")
+
+```
+
+## import data
+
+```{r,message=F,warning=F}
+
+species <- c("Bifidobacterium adolescentis","Bifidobacterium animalis","Bifidobacterium bifidum","Bifidobacterium catenulatum","Bifidobacterium longum","Bifidobacterium pseudocatenulatum")
+
+load("curated_v3_otu_tax.rda")
+
+setwd("/home/tapju/storage/actibiome")
+
+## MAGS annotations data, containing completeness, average distance according to a reference genome, etc
+mags_tax_file = readr::read_tsv("data-raw/bif_mags/Bifidobacterium_annotation/annotations_url_metadata_opendata.tsv") %>%
+  filter(assigned_genus=="Bifidobacterium") %>%
+  filter(completeness > 80) %>%
+  select(genome_name,study,sample_name,assigned_species,completeness, average_distance)
+
+
+
+
+## MAGS linked to functions ID's
+mags_tax_gene_id_eggnog <- readr::read_csv2("data-raw/bif_mags/mags_tax_gene_id_eggnog.csv") %>%
+   select(-X1) %>%
+  ## filter the species of interest
+   filter(grepl("adolescentis|animalis| longum|bifidum|dentium|pseudocatenulatum|catenulatum|animalis", assigned_species)) %>%
+  ### eggnog is linked to several annotations KEGG, CAZy, so we link only 1 annotations for 1 eggnog
+  group_by(eggNOG_OGs) %>%
+  mutate(KEGG_ko = get_mode(KEGG_ko)) %>%
+  mutate(CAZy = get_mode(CAZy)) %>%
+  mutate(EC = get_mode(EC)) %>%
+  ungroup()
+
+## number of mags per species
+
+nb_mags_species <- mags_tax_file %>%
+  data.frame(.) %>%
+  group_by(assigned_species) %>%
+  summarise(n=n()) %>%
+  filter(grepl("adolescentis|animalis| longum|bifidum|dentium|pseudocatenulatum|catenulatum|animalis", assigned_species))
+nb_mags_species$assigned_species <- gsub("Bifidobacterium","B.",nb_mags_species$assigned_species)
+
+
+```
+
+## mags _ tax file with selected species
+
+```{r,message=F,warning=F}
+
+sample <- sampleMetadata
+
+## if one ppl has several samples, keep the sample with the highest nb of reads
+sample <- unique(setDT(sampleMetadata)[order(subject_id, -number_reads)], by = "subject_id")
+
+metadata <- sample %>%
+   ## transform disease and westernized to good format
+   transform_disease(.) %>%
+   transform_westernized(.) %>%
+   select(sample_id, body_site, disease, age_category, gender, country, westernized, BMI, antibiotics_current_use)
+
+
+## merge with mags_tax
+
+mags_tax <- mags_tax_file %>%
+   merge(metadata, by.x = "sample_name", by.y = "sample_id") %>%
+   tibble::column_to_rownames("genome_name") %>%
+   filter(assigned_species %in% species)
+  
+
+```
+
+
+## code block to add healthy/unhealthy clusters
+
+```{r,message=F,warning=F}
+metadata <- metadata
+
+setwd("/home/ladeirru/GitHub/microbiome.actibiome")
+bifido <- fread("enterotype_DMM") %>%
+   select(-V1) %>%
+   merge(metadata, by="sample_id") %>%
+   mutate(grp_healthy = case_when(
+    bifidotype %in% c(1,2,6) ~ "healthy",
+    TRUE ~ "unhealthy"
+  )) 
+
+
+mags_tax <- mags_tax %>%
+  rownames_to_column("MAGS") %>%
+  merge(bifido %>% select(sample_id, grp_healthy), by.x = "sample_name", by.y="sample_id") %>%
+  column_to_rownames("MAGS")
+
+```
+
+## R Markdown
+
+```{r, message=F,warning=F, fig.height=9, fig.width = 9}
+
+functionality <- "eggNOG_OGs"
+
+mags_ko_file_name <- "mags_ko_file.csv"
+
+mags_ko_table <- mags_ko_table <- readr::read_csv2(mags_ko_file_name) %>%
+  merge(mags_tax_file %>% select(genome_name, assigned_species), by = "genome_name")
+
+
+### heatmap with only 0 & 1
+heat <- mags_ko_table %>%
+  mutate_at(vars(-c("assigned_species", "genome_name")),funs(case_when (. > 1 ~ 1,
+                                                             TRUE ~ .)))
+  
+   
+```
+
+
+## import data
+
+```{r,message=F,warning=F}
+
+
+mags_tax_gene_id_eggnog %>%
+  select(assigned_species,EC) %>%
+  filter(EC!="-") %>%
+  unique() -> ec_assigned_species
+
+
+ec_assigned_species %>%
+  group_by(assigned_species,EC) %>%
+  summarise(n=n()) %>%
+  reshape2::dcast(EC~assigned_species, value.var = "n", fill=0) %>%
+  UpSetR::upset()
+
+
+readr::read_tsv("data-raw/cazy_dbcann.tsv") %>%
+  merge(mags_tax_gene_id_eggnog,., by.x="id_rep", by.y="Gene ID", all = FALSE) %>%
+  select(assigned_species, eggNOG_OGs, cazy_family, Description) %>%
+group_by(assigned_species, cazy_family) %>%
+  summarise(n=1) %>%
+  reshape2::dcast(cazy_family~assigned_species, value.var = "n", fill=0) %>%
+  UpSetR::upset(nsets = 7)
+```
+
+## upsetR on eggnogs
+
+```{r,message=F,warning=F,fig.height=4, fig.width = 10}
+
+
+mags_tax_gene_id_eggnog %>%
+  select(assigned_species, eggNOG_OGs) %>%
+group_by(assigned_species, eggNOG_OGs) %>%
+  summarise(n=1) %>%
+  reshape2::dcast(eggNOG_OGs~assigned_species, value.var = "n", fill=0) %>%
+  UpSetR::upset(nsets = 6)
+
+
+```
+
+

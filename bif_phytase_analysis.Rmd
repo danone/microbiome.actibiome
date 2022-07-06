@@ -3,7 +3,39 @@ title: "PFAM analysis"
 output: html_notebook
 ---
 
-```{r}
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Librairies
+
+```{r,message=F,warning=F}
+
+
+
+source(file = "functions.R")
+
+```
+
+## import data
+
+```{r,message=F,warning=F}
+
+mags_tax_gene_id_eggnog <- readr::read_csv2("data-raw/mags_tax_gene_id_eggnog.csv") %>%
+   select(-X1)
+
+
+### load matrix of distances
+
+load(file = "bif_mags_dist.rda")
+
+```
+
+## phytase analysis
+
+```{r,message=F,warning=F}
+
 mags_tax_gene_id_eggnog %>%
   select(genome_name, assigned_species, sample_name) %>%
   mutate(genome_name= paste0(genome_name,".fa")) %>%
@@ -20,7 +52,9 @@ genome_name_assigned_species_df %>%
 
 ```{r}
 
+
 phytase_pfam_desc = c("His_Phos_2","Y_phosphatase3", "Phytase", "Phytase-like", "fn3_PAP")
+
 
 mags_tax_gene_id_eggnog %>% 
   filter(grepl(paste(phytase_pfam_desc, collapse="|"), PFAMs)) %>%
@@ -29,7 +63,6 @@ mags_tax_gene_id_eggnog %>%
   summarise(n=n()) -> bif_phytase 
 
 bif_phytase %>% write.csv2(file="bif_MAGs_phytase.csv")
-
   
   
 bif_phytase %>%
@@ -262,8 +295,6 @@ bif_cazy %>% write.csv2(file="bif_MAGs_cazy.csv")
 ```
 
 
-
-
 ```{r}
 
 rbind(
@@ -287,14 +318,7 @@ arrange(gene_type, family) -> bif_prevalence_phytase_cazy_pup
 readr::write_csv2(x = bif_prevalence_phytase_cazy_pup, file="bif_prevalence_phytase_cazy_pup.csv")
 
 
+
 ```
-
-
-
-
-
-
-
-
 
 
