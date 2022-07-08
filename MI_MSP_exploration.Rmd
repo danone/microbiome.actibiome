@@ -1,0 +1,100 @@
+---
+title: "MI MSP exploration"
+output: html_notebook
+---
+
+
+
+```{r}
+
+library(dplyr)
+
+```
+
+
+
+```{r}
+
+load("data-raw/MilieuInterieur/MilieuInterieur_df_long.rda")
+
+
+
+```
+
+```{r}
+
+df_long %>% head()
+
+```
+
+```{r}
+
+microbiome_resources = "/lustre/workgroups/microbiome_resources/reference/IGC/annotation/"
+
+msp_tax = readr::read_tsv(paste0(microbiome_resources,"1661_msps.gtdb_r95_taxonomy.tsv"))
+
+msp_genes = readr::read_tsv(paste0(microbiome_resources,"msp.tsv"))
+
+msp_genes = 
+  msp_genes %>% 
+  tidyr::separate(msp_name_module_name, into = c("msp","id","module"), extra = "merge", sep = "_") %>%
+  mutate(msp = paste0(msp,"_",id)) %>%
+  select(-id)
+
+
+igc_eggnog = readr::read_tsv("/lustre/workgroups/microbiome_resources/reference/IGC/annotation_raw/eggNOG_v5.0/IGC.eggNOG_v5.0.tsv.gz",
+                             skip = 2, col_names = TRUE)
+
+
+eggnog_diff_healthy = readr::read_csv2("data-raw/association_eggnogs_metadata_grp_healthy.csv") %>% filter(p.value < 0.1)
+
+
+```
+
+```{r}
+
+msp_tax %>%
+  filter(gtdb_classification %in% grep("bifidum", msp_tax$gtdb_classification, value = TRUE)) %>%
+  merge(msp_genes, by.x="msp_name", by.y ="msp") %>% 
+  merge(igc_eggnog, by.x="gene_name", by.y="query") %>%
+  merge(eggnog_diff_healthy, by.x="eggNOG_OGs", by.y="eggnog") -> msp_healthy_associated_genes
+  
+# msp_tax %>%
+#   filter(gtdb_classification %in% grep("Bifidobacterium", msp_tax$gtdb_classification, value = TRUE))
+
+
+
+```
+
+
+```{r}
+
+fake_sample = data.frame(X1="fake", count=0, sample = df_long %>% pull(sample) %>% unique) # to keep all samples
+
+df_long %>% 
+  filter(X1 %in% msp_healthy_associated_genes$gene_name) %>%
+  #rbind(fake_sample) %>%
+  reshape2::dcast(X1~sample, value.var = "count", fill=0) %>%
+  filter(X1 != "fake") -> df_healthy_associated_genes_cast
+
+
+
+
+
+
+
+```
+
+
+```{r}
+
+
+df_healthy_associated_genes_cast %>%
+  tibble::column_to_rownames("X1") %>%
+  as.matrix %>%
+  heatmap()
+
+
+```
+
+
