@@ -1,0 +1,252 @@
+---
+title: "eggnog_MSP_analysis"
+author: "ruben"
+date: "06/07/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Librairies
+
+```{r,message=F,warning=F}
+
+library(dplyr)
+library(readr)
+library(pheatmap)
+library(data.table)
+library(tidyr)
+library(tibble)
+library("factoextra")
+library("FactoMineR")
+library(RColorBrewer)
+library(stringr)
+
+
+source(file = "functions.R")
+
+```
+
+
+## import MSP data
+
+```{r,message=F,warning=F}
+
+## merge with the couple msp/sample
+msp_sample_count <- readr::read_tsv("data-raw/MilieuInterieur/MilieuInterieur_samples_msp_module_counts.tsv")
+
+## contains MSP with KO, EC, eggnog annotations
+## ID = eggNOG_OGs
+msp_file <- readr::read_tsv("test/IGC.eggNOG_v5.0.tsv", skip=2) %>%
+  dplyr::rename("gene_id" = "query") %>%
+  data.frame()
+head(msp_file)
+
+## gene richness and reads mapped
+
+msp_gene_richness <- readr::read_tsv("data-raw/MilieuInterieur/MilieuInterieur_genes_richness.tsv")
+
+
+###
+msp_gene <- readr::read_tsv("/lustre/workgroups/microbiome_resources/reference/IGC/annotation/msp.tsv")
+
+
+## MSP associated with taxonomy
+MSP_taxonomy <- readr::read_tsv("/lustre/workgroups/microbiome_resources/reference/IGC/annotation/1661_msps.gtdb_r95_taxonomy.tsv")
+
+name_milieu_interieur_bifidobacterium <- "MilieuInterieur_df_Bidobacterium.tsv"
+
+## MSP df contain the count of genes (X1 = gene_id)
+if(!(name_milieu_interieur_bifidobacterium %in% list.files())){
+  
+  MSP_df <- get(load("data-raw/MilieuInterieur/MilieuInterieur_df_long.rda")) %>%
+    dplyr::rename(gene_id = X1)
+  
+  ## filter the msp modules associated with bifidobacterium genus
+  
+  msp_specific_bifido <- MSP_taxonomy %>%
+    filter(., grepl("Bifidobacterium", gtdb_classification)) %>%
+    select(msp_name)
+  
+  ### filter the genes associated with these msp
+  gene_to_filter <- msp_gene %>%
+    filter(., grepl(msp_specific_bifido$msp_name, msp_name_module_name)) %>%
+    .$gene_name %>%
+    unique()
+  ## these are the gene names to filter in the table
+  
+  MSP_df_filtered <- MSP_df %>%
+    filter(gene_id %in%gene_to_filter) %>%
+    distinct()
+  
+  write_tsv(MSP_df_filtered, file = name_milieu_interieur_bifidobacterium)
+  
+} else{
+  
+    MSP_df_filtered <- readr::read_tsv(name_milieu_interieur_bifidobacterium)
+  
+  }
+
+
+
+```
+
+
+## import eggnog data 
+
+```{r,message=F,warning=F}
+
+eggnog_age_category <- readr::read_csv2("association_eggnogs_metadata_age_category.csv")
+
+eggnog_grp_healthy <- readr::read_csv2("association_eggnogs_metadata_grp_healthy.csv")
+
+eggnog_westernized <- readr::read_csv2("association_eggnogs_metadata_westernized.csv")
+
+
+
+```
+
+
+## filter p value eggnog data
+
+```{r,message=F,warning=F}
+
+
+egg_healthy_filtered <- eggnog_grp_healthy %>%
+  filter(p.value < 0.10) %>%
+  select(assigned_species, variable, eggnog)
+
+
+egg_age_filtered <- eggnog_age_category %>%
+  filter(p.value < 0.10) %>%
+  select(assigned_species, variable, eggnog)
+
+
+egg_wetsernized_filtered <- eggnog_westernized %>%
+  filter(p.value < 0.10) %>%
+  select(assigned_species, variable, eggnog) 
+
+
+all_eggnogs <- egg_age_filtered %>%
+  rbind(egg_healthy_filtered) %>%
+  rbind(egg_wetsernized_filtered) %>%
+  ## need to remove any duplicate
+  arrange(eggnog) %>%
+  filter(duplicated(eggnog) == FALSE)
+
+```
+
+
+## import filter gene associated with eggnogs
+
+```{r,message=F,warning=F}
+
+select_eggnog_msp <- msp_file %>%
+  dplyr::rename("eggnog" = "eggNOG_OGs") %>%
+  filter(eggnog %in% all_eggnogs$eggnog) %>%
+  select(eggnog, gene_id) %>%
+  distinct()
+
+```
+
+## import bifidotypes
+
+```{r,message=F,warning=F}
+
+bifidotype <- fread("enterotype_DMM_msp") %>%
+  select(-V1) %>%
+  # delete X
+  mutate(sample_id = gsub("X", "", sample_id)) %>%
+  ## transform bifidotype col to character
+  #transform(bifidotype = as.character(bifidotype)) %>%
+  ## mutate 4 which is the "low_diversity" cluster
+  mutate(bifidotype = case_when(
+    bifidotype %in% c(4) ~ "low diversity",
+    TRUE ~ "high diversity"
+  ))
+  
+
+```
+
+## import eggnog data
+
+```{r,message=F,warning=F}
+
+## select the gene count to get the eggnog 0/1 per sample
+
+eggnog_counts <- MSP_df_filtered %>%
+  ## correct the sample ids
+  mutate(sample = sub("^0+", "", sample)) %>%
+  inner_join(select_eggnog_msp, by = "gene_id") %>%
+  select(- gene_id) %>%
+  distinct() %>%
+  ## need to sum the count per gene x sample
+  group_by(eggnog, sample) %>% 
+  summarise(count = sum(count)) %>%
+  ungroup() %>%
+  mutate(count = ifelse(. > 0, 1, .)) %>%
+  reshape2::dcast(eggnog~sample, value.var = "count", fill=0) %>%
+   tibble::column_to_rownames("eggnog") %>%
+   as.matrix() %>%
+   pheatmap::pheatmap(show_colnames = FALSE, show_rownames = FALSE, main = "", method = "ward.D",
+                      annotation_row = all_eggnogs %>% column_to_rownames("eggnog"),
+                      annotation_col = bifidotype %>% column_to_rownames("sample_id"))
+
+## lignes : eggnogs
+## colonnes : sample
+```
+
+## study specific eggnog signals in curated eggnog tables
+```{r,message=F,warning=F}
+
+eggnog_bifidum_healthy <- eggnog_grp_healthy %>%
+  filter(p.value < 0.10) %>%
+  filter(assigned_species %in% "Bifidobacterium bifidum") %>%
+  ## filter phage eggnog
+  filter(str_detect(Description, "Phage") | str_detect(Description, "phage")) %>%
+  ## filter the eggnog with higher prevalence in unhealthy
+  #filter(prevalence_unhealthy > prevalence_healthy) %>%
+  select(assigned_species, variable, eggnog) %>%
+  distinct()
+
+## filter eggnog
+
+select_eggnog_msp <- msp_file %>%
+  dplyr::rename("eggnog" = "eggNOG_OGs") %>%
+  filter(eggnog %in% eggnog_bifidum_healthy$eggnog) %>%
+  select(eggnog, gene_id) %>%
+  distinct()
+
+##
+
+  ## filter the msp modules associated with bifidum
+  
+msp_specific_bifido <- MSP_taxonomy %>%
+  filter(., grepl("bifidum", gtdb_classification)) %>%
+  select(msp_name)
+  
+  ### filter the genes associated with bifidum msp & eggnog of interest
+gene_to_filter <- msp_gene %>%
+  ## filter bifidum
+  filter(grepl(msp_specific_bifido$msp_name, msp_name_module_name)) %>%
+  # filter bifidum gene/eggnogs
+  filter(., grepl(select_eggnog_msp$gene_id, gene_name)) %>%
+  .$gene_name %>%
+  unique()
+
+## these are the gene names to filter in the table
+  
+  
+## calculate the prevalence of this gene
+
+## gene count per sample
+count_gene_interest <- msp_gene_richness %>%
+  merge(MSP_df_filtered %>% filter(gene_id %in% gene_to_filter), by = sample, all=TRUE) %>%
+  MSP_df_filtered
+
+
+
+```
+
