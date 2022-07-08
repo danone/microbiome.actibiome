@@ -37,14 +37,14 @@ load(file = "bif_mags_dist.rda")
 ```{r,message=F,warning=F}
 
 mags_tax_gene_id_eggnog %>%
-  select(genome_name, assigned_species) %>%
+  select(genome_name, assigned_species, sample_name) %>%
   mutate(genome_name= paste0(genome_name,".fa")) %>%
   unique() -> genome_name_assigned_species_df
 
 
 genome_name_assigned_species_df %>%
   group_by(assigned_species) %>%
-  summarise(n_genomes=n())
+  summarise(n_genomes=n()) 
 
 ```
 
@@ -72,8 +72,104 @@ bif_phytase %>%
 
 ```
 
+### phytase and metadata
 
-## PUP
+
+```{r}
+load("curated_v3_otu_tax.rda")
+
+sampleMetadata %>% select(sample_id, non_westernized,age_category) -> CMD_metadata
+```
+#### phytase adult western vs no western
+
+```{r fig.height=6, fig.width=12}
+
+genome_name_assigned_species_df %>%
+  merge(CMD_metadata, by.x="sample_name", by.y="sample_id") %>%
+  group_by(assigned_species,non_westernized) %>%
+  summarise(n_genomes=n()) 
+
+
+phytase_pfam_desc = c("His_Phos_2","Y_phosphatase3", "Phytase", "Phytase-like", "fn3_PAP")
+
+mags_tax_gene_id_eggnog %>% 
+  filter(grepl(paste(phytase_pfam_desc, collapse="|"), PFAMs)) %>%
+  merge(CMD_metadata, by.x="sample_name", by.y="sample_id") %>%
+  filter(age_category == "adult") -> mags_tax_gene_id_eggnog_phytase_metadata
+  
+
+mags_tax_gene_id_eggnog_phytase_metadata %>% 
+  select(genome_name, assigned_species, eggNOG_OGs, PFAMs, Description, non_westernized) %>% #dim
+  unique %>% #dim
+  group_by(assigned_species, eggNOG_OGs,PFAMs, Description,non_westernized) %>%
+  summarise(n=n()) %>%
+  
+  merge(
+    
+    genome_name_assigned_species_df %>%
+  merge(CMD_metadata, by.x="sample_name", by.y="sample_id") %>%
+  filter(age_category == "adult") %>%
+  group_by(assigned_species,non_westernized) %>%
+  summarise(n_genomes=n()) , 
+  by=c("assigned_species","non_westernized")) %>%
+  
+  arrange(assigned_species,eggNOG_OGs) %>%
+  mutate(prevalence=n/n_genomes) %>%
+  ggplot() + 
+  geom_bar(aes(x=Description,y=prevalence,fill=non_westernized), stat="identity", position = "dodge") +
+  facet_grid(~assigned_species %>% gsub(" ","\n",.), scales = "free_x", space = "free_x") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  
+  
+  
+```
+#### phytase age category western
+
+```{r fig.height=6, fig.width=12}
+
+
+phytase_pfam_desc = c("His_Phos_2","Y_phosphatase3", "Phytase", "Phytase-like", "fn3_PAP")
+
+mags_tax_gene_id_eggnog %>% 
+  filter(grepl(paste(phytase_pfam_desc, collapse="|"), PFAMs)) %>%
+  merge(CMD_metadata, by.x="sample_name", by.y="sample_id") %>%
+  filter(non_westernized == "no") %>%
+  mutate(age_category = age_category %>% forcats::fct_relevel("adult", after=3))  -> mags_tax_gene_id_eggnog_phytase_metadata
+  
+
+mags_tax_gene_id_eggnog_phytase_metadata %>% 
+  select(genome_name, assigned_species, eggNOG_OGs, PFAMs, Description, age_category) %>% #dim
+  unique %>% #dim
+  group_by(assigned_species, eggNOG_OGs,PFAMs, Description,age_category) %>%
+  summarise(n=n()) %>%
+  
+  merge(
+    
+    genome_name_assigned_species_df %>%
+  merge(CMD_metadata, by.x="sample_name", by.y="sample_id") %>%
+  filter(non_westernized == "no") %>%
+  group_by(assigned_species,age_category) %>%
+  summarise(n_genomes=n()) , 
+  by=c("assigned_species","age_category")) %>%
+  
+  arrange(assigned_species,eggNOG_OGs) %>%
+  mutate(prevalence=n/n_genomes) %>%
+  ggplot() + 
+  geom_bar(aes(x=Description,y=prevalence,fill=age_category), stat="identity", position = "dodge") +
+  facet_grid(~assigned_species %>% gsub(" ","\n",.), scales = "free_x", space = "free_x") +
+  scale_fill_brewer(type="div", palette = 2) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  
+  
+
+
+```
+
+
+
+## PUP 
 
 ```{r}
 
@@ -94,6 +190,92 @@ bif_PUP %>%
 
 
 ```
+
+### pup  adult western vs no western
+
+
+```{r fig.height=6, fig.width=12}
+
+
+readr::read_tsv("data-raw/all.bif.nr95.dbPUP.hits.tsv") %>%
+  dplyr::rename(pup_annot=annot) %>%
+  select(-tax) %>%
+  merge(mags_tax_gene_id_eggnog, by="id_rep", all = FALSE) %>%
+  merge(CMD_metadata, by.x="sample_name", by.y="sample_id") %>%
+  filter(age_category == "adult") %>%
+  select(genome_name, assigned_species, eggNOG_OGs, pup_family, Description, non_westernized) %>% #dim
+  unique %>% #dim
+  group_by(assigned_species, eggNOG_OGs,pup_family, Description,non_westernized) %>%
+  summarise(n=n()) %>%
+  
+  merge(
+    
+    genome_name_assigned_species_df %>%
+  merge(CMD_metadata, by.x="sample_name", by.y="sample_id") %>%
+  filter(age_category == "adult") %>%
+  group_by(assigned_species,non_westernized) %>%
+  summarise(n_genomes=n()) , 
+  by=c("assigned_species","non_westernized")) %>%
+  
+  arrange(assigned_species,eggNOG_OGs) %>%
+  mutate(prevalence=n/n_genomes) %>%
+  ggplot() + 
+  geom_bar(aes(x=pup_family,y=prevalence,fill=non_westernized), stat="identity", position = "dodge") +
+  facet_grid(~assigned_species %>% gsub(" ","\n",.), scales = "free_x", space = "free_x") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+
+  
+
+
+```
+
+
+### pup  age category western 
+
+
+```{r fig.height=6, fig.width=12}
+
+
+readr::read_tsv("data-raw/all.bif.nr95.dbPUP.hits.tsv") %>%
+  dplyr::rename(pup_annot=annot) %>%
+  select(-tax) %>%
+  merge(mags_tax_gene_id_eggnog, by="id_rep", all = FALSE) %>%
+  merge(CMD_metadata, by.x="sample_name", by.y="sample_id") %>%
+  filter(non_westernized == "no") %>%
+  mutate(age_category = age_category %>% forcats::fct_relevel("adult", after=3)) %>%
+  select(genome_name, assigned_species, eggNOG_OGs, pup_family, Description, age_category) %>% #dim
+  unique %>% #dim
+  group_by(assigned_species, eggNOG_OGs,pup_family, Description,age_category) %>%
+  summarise(n=n()) %>%
+  
+  merge(
+    
+    genome_name_assigned_species_df %>%
+  merge(CMD_metadata, by.x="sample_name", by.y="sample_id") %>%
+  filter(non_westernized == "no") %>%
+  group_by(assigned_species,age_category) %>%
+  summarise(n_genomes=n()) , 
+  by=c("assigned_species","age_category")) %>%
+  
+  arrange(assigned_species,eggNOG_OGs) %>%
+  mutate(prevalence=n/n_genomes) %>%
+  ggplot() + 
+  geom_bar(aes(x=pup_family,y=prevalence,fill=age_category), stat="identity", position = "dodge") +
+  facet_grid(~assigned_species %>% gsub(" ","\n",.), scales = "free_x", space = "free_x") +
+  scale_fill_brewer(type="div", palette = 2) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+
+  
+
+
+```
+
 
 ## cazy
 
@@ -136,4 +318,7 @@ arrange(gene_type, family) -> bif_prevalence_phytase_cazy_pup
 readr::write_csv2(x = bif_prevalence_phytase_cazy_pup, file="bif_prevalence_phytase_cazy_pup.csv")
 
 
+
 ```
+
+
