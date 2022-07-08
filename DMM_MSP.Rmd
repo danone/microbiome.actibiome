@@ -54,6 +54,20 @@ msp_species_taxonomy_count <- fread("data-raw/MilieuInterieur/MilieuInterieur_sa
         remove = FALSE)
 head(msp_species_taxonomy_count)
 
+## the count based on single copy, gene de ménage
+
+msp_species_taxonomy_count_julien <- fread("data-raw/MilieuInterieur/MilieuInterieur_df_motus_long.tsv") %>%
+  ## filter bifido species
+  dplyr::rename("taxonomy" = "#consensus_taxonomy") %>%
+  filter(grepl("Bifidobacterium",taxonomy)) %>%
+  filter(!grepl("incertae",taxonomy)) %>%
+  mutate(taxonomy = gsub(" \\[.*","", taxonomy))
+
+## import gene richness
+
+
+msp_gene_richness <- readr::read_tsv("data-raw/MilieuInterieur/MilieuInterieur_genes_richness.tsv")
+
 
 ## import some metadata
 
@@ -62,6 +76,63 @@ metadata_mutrition_msp <- read_excel("MI_metadata_extraction.xlsx")
 
 sample_metadata_msp <- read_excel("sample_metadata_msp.xlsx")
 
+
+
+
+```
+
+## create phyloseq object for data MilieuInterieur_df_motus_long.tsv
+
+```{r,message=F,warning=F}
+
+## create the taxa table
+
+phy.taxo.bis_df <- msp_species_taxonomy_count_julien %>%
+  select(-count, -sample) %>%
+  ### create a matrix to prevent redundant taxa_id
+  distinct() %>%
+  mutate(species = taxonomy) %>%
+  column_to_rownames("taxonomy")
+
+## create the otu table
+
+phy.otu.bis <- msp_species_taxonomy_count_julien %>%
+  select(sample, taxonomy, count) %>%
+  reshape2::dcast(taxonomy~sample, value.var = "count", fill=0) %>%
+  column_to_rownames("taxonomy")
+
+## order row according to phy.taxo, transform to otu object
+phy.otu.bis <- phy.otu.bis[match(rownames(phy.taxo.bis_df),rownames(phy.taxo.bis_df)),] %>%
+  as.matrix() %>%
+  otu_table(taxa_are_rows = TRUE)
+
+## transform to taxa object
+phy.taxo.bis <- phy.taxo.bis_df %>%
+  as.matrix() %>%
+  tax_table()
+
+## create the phyloseq object
+
+msp.phy.bis <- phyloseq(phy.taxo.bis, phy.otu.bis)
+
+## transform to relative abundance
+
+msp.species.phy.normalized.bis <- microbiome::transform(msp.phy.bis, "compositional")
+
+## convert taxa id to unique species name
+
+count <- abundances(msp.phy.bis) %>%
+  data.frame %>%
+  filter(row.names(.) %in% (phy.taxo.bis_df %>% filter(., grepl("Bifidobacterium", species)) %>% rownames(.)))
+
+## change taxa names to species name
+
+rownames(count) <- gsub(".*s__","",rownames(count))
+
+## taxa names must be in columns
+
+count.bis <- count %>%
+  t
 
 ```
 
@@ -86,7 +157,7 @@ phy.otu <- msp_species_taxonomy_count %>%
   column_to_rownames("taxa_id")
 
 ## order row according to phy.taxo, transform to otu object
-phy.otu <- phy.otu[match(rownames(phy.taxo),rownames(phy.otu)),] %>%
+phy.otu <- phy.otu[match(rownames(phy.taxo_df),rownames(phy.taxo_df)),] %>%
   as.matrix() %>%
   otu_table(taxa_are_rows = TRUE)
 
@@ -103,12 +174,6 @@ msp.phy <- phyloseq(phy.taxo, phy.otu)
 
 msp.species.phy.normalized <- microbiome::transform(msp.phy, "compositional")
 
-```
-
-
-## Pre process for building DMM
-
-```{r,message=F,warning=F}
 
 ## convert taxa id to unique species name
 
@@ -127,6 +192,24 @@ count <- count %>%
 
 ```
 
+## ask which file to work on the DMM
+
+```{r,message=F,warning=F}
+
+which_study <- readline(prompt=paste("Do you want to cluster the data on Motus_long (1)","or MilieuInterieur_samples_species_counts (2) ??", "", sep="\n"))
+
+while(!which_study %in% c("1", "2")){
+  which_study <- readline(prompt=paste("Do you want to cluster the data on Motus_long (1)","or MilieuInterieur_samples_species_counts (2) ??", "", sep="\n"))
+}
+
+if(which_study == "2"){
+  
+  count = count.bis
+  
+}
+
+```
+
 ## Code à faire marcher la nuit
 
 ```{r,message=F,warning=F}
@@ -136,8 +219,8 @@ max_n = 15
 
 fit_genus_list = vector("list",5)
 
-dmm_name <- "DMM_msp"
-seeds_list_name <- "seeds_msp"
+dmm_name <- paste0("DMM_msp_",which_study)
+seeds_list_name <- paste0("seeds_msp_",which_study)
 
 set.seed(1234)
 seeds=sample(1:1000, 5)
@@ -257,7 +340,17 @@ k_BIC <- mean_rank %>%
 
 ## force k <- 5
 
-k_BIC <- 5
+if(which_study == "2"){
+  
+  k_BIC <- 3
+  
+}else{
+  
+  k_BIC <- 5
+  
+}
+
+
 
 ## we select k=6 with BIC method
 
@@ -288,7 +381,7 @@ best <- fit[[k_BIC]]
 ### save the best_fit
 
 
-name_best <- "./DMM_files/best_fit_DMM_msp"
+name_best <- paste0("./DMM_files/best_fit_DMM_msp_",which_study)
 
 if(!name_best %in% list.files("./DMM_files/")){
   
@@ -297,6 +390,45 @@ if(!name_best %in% list.files("./DMM_files/")){
 
 ```
 
+## contribution of each species
+
+```{r,message=F,warning=F,fig.width=6, fig.height=6}
+
+matrix_int <- fitted(best, scale= TRUE) %>%
+  log10(.) %>%
+  round(.,2)
+
+matrix_int <- round(matrix_int,2)
+
+## replace col and rownames
+
+colnames(matrix_int) <- paste("cluster ",1:ncol(matrix_int))
+
+rownames(matrix_int) <- gsub("Bifidobacterium","B. ",rownames(matrix_int))
+
+
+my_palette <- colorRampPalette(c("red", "yellow", "green"))(n = 299)
+
+col_breaks = c(seq(0.81,1,length=100), # for red
+seq(0,0.8,length=100),  # for yellow
+seq(-1,0,length=100)) # for green
+
+#png(filename = "heatmap_dmm.png", width = 1000, height = 1000, units = "px")
+
+heatmap.2(matrix_int,
+  cellnote = matrix_int,  # same data set for cell labels
+  main = "", # heat map title
+  notecol="black",      # change font color of cell labels to black
+  density.info="none",  # turns off density plot inside color legend
+  trace="none",         # turns off trace lines inside the heat map
+  margins = c(12,9),     # widens margins around plot
+  col=my_palette,       # use on color palette defined earlier
+  key.title = "",
+  key.xlab = expression(paste("log"[10],"(Value)")))           # turn off column clustering
+
+
+
+```
 
 ## estimate enterotypes de novo
 
@@ -320,9 +452,11 @@ bifidotype <- data.frame(bifidotype = model)
 bifidotype <- bifidotype %>%
   rownames_to_column("sample_id")
 
+name_bifidotype <- paste0("model_DMM_msp_",which_study)
+
 if(!"model_DMM_msp" %in% list.files()){
   
-  write.csv(bifidotype, file="enterotype_DMM_msp", row.names=TRUE, col.names=TRUE, quote=FALSE)
+  write.csv(bifidotype, file=name_bifidotype, row.names=TRUE, col.names=TRUE, quote=FALSE)
   
 }
 
@@ -330,9 +464,244 @@ bifidotype <- fread("enterotype_DMM_msp") %>%
   column_to_rownames("V1")
 
 bifidotype$bifidotype <- as.character(bifidotype$bifidotype)
+# delete X character
+bifidotype$sample_id <- gsub("X", "", bifidotype$sample_id)
+
+```
+
+## search for corresponding id between metadata_mutrition_msp and bifidotype table
+
+```{r,message=F,warning=F}
+
+metadata_mutrition_msp <- read_excel("MI_metadata_extraction.xlsx") %>%
+  dplyr::rename("mic_id" = "SUBJID")
+
+## id table
+jemtable <- read_excel("jem_id_only.xlsx") %>%
+  select(Sample, DonorId) %>%
+  dplyr::rename("sample_id" = "Sample") %>%
+  dplyr::rename("mic_id" = "DonorId")
+
+## delete the first 0 in the sample to match to the database
+jemtable$sample_id <- sub("^0+", "", jemtable$sample_id)
+
+
+
+#### merge the tables
+
+df <- bifidotype %>%
+  merge(jemtable, by.x = "sample_id", all = FALSE)
+
+df$mic_id <- paste0("MIC", df$mic_id)
+
+df <- df %>%
+  merge(metadata_mutrition_msp, by = "mic_id")
+
+```
+
+## some exploration with the clusters
+
+```{r,message=F,warning=F}
+
+shannon_diversity_bifidotypes <- msp_gene_richness %>%
+  select(sample, genes_richness_1M) %>%
+  ## correct the sample ids
+  mutate(sample = sub("^0+", "", sample)) %>%
+  ## merge with bifidotypes
+  merge(bifidotype, by.x = "sample", by.y ="sample_id") %>%
+  select(-sample)
+  
+
+
+```
+
+## Clusters distributions
+
+```{r,message=F,warning=F}
+
+distribution <- bifidotype %>%
+  select(-sample_id) %>%
+  group_by(bifidotype) %>%
+  table(.) %>%
+  data.frame(.)
+
+distribution$. <- as.character(distribution$.)
+
+ggplot(distribution, aes(x = ., y = Freq, fill = .)) +  # Plot with values on top
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = Freq), vjust = 0) +
+  labs( y = "count") +
+  scale_x_discrete(limits = as.character(1:max(distribution$.)))
+
+```
+
+## plot
+
+```{r,message=F,warning=F}
+
+library(ggplot2)
+library(ggpubr)
+
+p <- ggplot(shannon_diversity_bifidotypes, aes(x = bifidotype,
+                       y = genes_richness_1M, fill = bifidotype)) +
+  geom_boxplot(outlier.shape = NA)
+  
+p <- p + scale_fill_brewer(palette="Dark2") +
+  theme_minimal() +
+  labs(x = NULL, y = NULL, title = "Gene Richness",fill= "Bifidotype") # + 
+  # coord_cartesian(ylim=c(0,0.3))
+
+p +
+  stat_compare_means(label.y = 450000) +
+  stat_compare_means(label = "p.signif", method = "wilcox", ref.group = "1")
+  
+
+
+```
+
+## plot
+
+```{r,message=F,warning=F}
+
+library(ggplot2)
+library(ggpubr)
+
+p <- ggplot(shannon_diversity_bifidotypes, aes(x = bifidotype,
+                       y = genes_richness_1M, fill = bifidotype)) +
+  geom_boxplot(outlier.shape = NA)
+  
+p <- p + scale_fill_brewer(palette="Dark2") +
+  theme_minimal() +
+  labs(x = NULL, y = NULL, title = "Gene Richness",fill= "Bifidotype") # + 
+  # coord_cartesian(ylim=c(0,0.3))
+
+p +
+  stat_compare_means(label.y = 450000) +
+  stat_compare_means(label = "p.signif", method = "wilcox", ref.group = "1")
+  
+
+
+```
+## bifidotypes associations : continuous variable
+
+```{r,message=F,warning=F}
+
+bifido_par <- df %>%
+  ## rename variables
+  dplyr::rename(age = AGE) %>%
+  dplyr::rename(gender = SEX) %>%
+  dplyr::rename(CRP = CRP.V0) %>%
+  dplyr::rename("nutritional_profile" = "NUTR.PROFILE") %>%
+  select(-mic_id, -sample_id)
+```
+
+## plot continuous
+
+```{r,message=F,warning=F}
+  
+bifido_continuous <- bifido_par %>%
+  select(-gender,-contains("nutritional")) %>%
+  gather(parameter, value,  age : NUTR.FACT3) %>%
+  transform(value = as.numeric(value))
+
+plot <- ggplot(bifido_continuous, aes(x = bifidotype,
+                              y = value, fill = bifidotype)) +
+  geom_boxplot(outlier.shape = NA) +
+  theme_minimal() +
+  labs(fill= "Bifidotype", x="", y="") +
+  facet_wrap(~parameter, scales = "free") +
+  stat_compare_means(label = "p.signif", method = "wilcox", ref.group = "1", vjust = 0.5)
+
+plot
+  
+
+```
+
+## plot nutritional profile according to continuous variables
+
+```{r,message=F,warning=F, fig.width=11, fig.height = 8}
+
+
+bifido_nutritional <- bifido_par %>%
+  select(-gender,-bifidotype) %>%
+  gather(parameter, value,  -nutritional_profile) %>%
+  transform(value = as.numeric(value))
+
+plot <- ggplot(bifido_nutritional, aes(x = nutritional_profile,
+                              y = value, fill = nutritional_profile)) +
+  geom_boxplot(outlier.shape = NA) +
+  theme_minimal() +
+  labs(fill= "Bifidotype", x="", y="") +
+  facet_wrap(~parameter, scales = "free") +
+  stat_compare_means(label = "p.signif", method = "wilcox", ref.group = "Diversified")
+
+plot
+
+
+```
+
+## plot bifidotypes vs nutritional_profile
+
+```{r,message=F,warning=F}
+
+## test de chi2 entre bifidotypes & nutritional profile
+
+bifido_discrete <- bifido_par %>%
+  select(bifidotype, nutritional_profile) %>%
+  table() %>%
+  data.frame %>%
+  spread(nutritional_profile, Freq) %>%
+  column_to_rownames("bifidotype")
+
+test <- chisq.test(bifido_discrete)
+
+## plot
+
+library(corrplot)
+corrplot(test$residuals, is.cor = FALSE, method = 'color')
+
+```
+
+## plot nutritional scores with bifidotypes
+
+```{r,message=F,warning=F}
+
+## for plotting
+library("scatterplot3d")
+
+metadata_mutrition_msp <- read_excel("MI_metadata_extraction.xlsx") %>%
+  select(SUBJID, contains('NUTR.F')) %>%
+  dplyr::rename("mic_id" = "SUBJID")
+  ## merge bifidotypes
+
+
 
 ```
 
 
+## plot
 
+```{r,message=F,warning=F}
+
+## prepare colors
+
+color <- c("#999999", "#E69F00", "#56B4E9", "#990009", "#000999")
+colors <- color[as.numeric(df$bifidotype)]
+
+
+s3d <- scatterplot3d(df %>% select(contains('NUTR.FACT')), pch = 16, color=colors)
+legend("right", legend = levels(factor(df$bifidotype)),
+      col =  color, pch = 16)
+
+
+```
+
+
+## association between gene richness and nutritional profile
+
+```{r,message=F,warning=F}
+
+
+
+```
 
