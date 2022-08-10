@@ -200,6 +200,12 @@ for (group in groups) {
   order_baseMean[, group] <- res_temp[signif_genera, "baseMean"]
 }
 
+```
+
+## load Deseq results
+
+```{r cars}
+
 ## save the log 2 fold change results
 
 name_FC = "output_LogFC_7"
