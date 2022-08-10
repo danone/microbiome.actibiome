@@ -59,17 +59,21 @@ load(file = "phy_curated_data_after_QC.rda")
 
 phy <- subset_samples(phy, body_site == "stool")
 
+nrow(data.frame(phy@sam_data))
+
 ## diversity vegan
 
 phy_diversity <- estimate_richness(phy, split = TRUE, measures = "Shannon")
 
-phy <- subset_samples(phy, age_category == "adult")
+#phy <- subset_samples(phy, age_category == "adult")
 
 #phy <- subset_samples(phy, disease == "Control")
 
 phy <- subset_samples(phy, antibiotics_current_use == "no")
 
-phy <- subset_samples(phy, westernized == "yes")
+nrow(data.frame(phy@sam_data))
+
+#phy <- subset_samples(phy, westernized == "yes")
 
 ```
 
@@ -218,6 +222,7 @@ for(i in 1:5) {
 }
 
 ```
+
 ## Model fit
 
 ```{r,message=F,warning=F}
@@ -460,7 +465,7 @@ distribution$. <- as.character(distribution$.)
 ggplot(distribution, aes(x = ., y = Freq, fill = .)) +  # Plot with values on top
   geom_bar(stat = "identity") +
   geom_text(aes(label = Freq), vjust = 0) +
-  labs( y = "count") +
+  labs( y = "count", x = "bifidotype", fill = "bifidotype") +
   scale_x_discrete(limits = as.character(1:max(distribution$.)))
 
 ```
@@ -700,7 +705,7 @@ p
 
 p <- ggplot(top_5_abundance, aes(x = bifidotype,
                        y = abundance, fill = bifidotype)) +
-  geom_boxplot() +
+  geom_violin() +
   #geom_boxplot(outlier.shape = NA) +
   theme_minimal() +
   labs(fill= "Bifidotype", x="", y=expression(paste("log"[10],"(Abundance)"))) +
@@ -744,17 +749,19 @@ p
 diversity <- phy_diversity %>%
   rownames_to_column("sample_id") %>%
   merge(., enterotype, by="sample_id") %>%
-  select(-sample_id)
+  select(-sample_id) %>%
+  mutate(grp_healthy = case_when(
+    bifidotype %in% c(1,2,6) ~ "healthy",
+    TRUE ~ "unhealthy" )) 
 
 diversity$bifidotype <- as.character(diversity$bifidotype)
 
 p <- ggplot(diversity, aes(x = bifidotype,
-                       y = Shannon)) +
+                       y = Shannon, color = grp_healthy)) +
   geom_boxplot(outlier.shape = NA) +
   theme_minimal() +
   stat_compare_means(label.y = 4.5, label.x ="3") +
-  stat_compare_means(label = "p.signif", method = "wilcox", ref.group = "1", label.y = 4.1) +
-  labs(fill= "bifidotype")
+  stat_compare_means(label = "p.signif", method = "wilcox", ref.group = "1", label.y = 4.1)
   
 p
 
@@ -800,6 +807,20 @@ distribution <- function(category, type){
 
 distribution('westernized', 'qual')
 
+### test
+
+
+  test_data <- phy@sam_data %>%
+    data.frame(.) %>%
+    rownames_to_column("sample_id") %>%
+    merge(., enterotype, by="sample_id") %>%
+    select(bifidotype,all_of(category), sample_id) %>%
+    group_by_all(.) %>%
+    summarise(rows = n(), .groups = 'drop') %>%
+    group_by_at('bifidotype') %>%
+    mutate(percent = rows/sum(rows)) %>%
+    dplyr::rename(., 'category' = category)
+
 ```
 
 ## Description des clusters
@@ -807,6 +828,20 @@ distribution('westernized', 'qual')
 ```{r,message=F,warning=F, fig.height=9, fig.width = 19}
 
 distribution('disease', "qual")
+
+```
+## Description des clusters
+
+```{r,message=F,warning=F, fig.height=9, fig.width = 19}
+
+distribution('age_category', "qual")
+
+```
+## Description des clusters
+
+```{r,message=F,warning=F, fig.height=9, fig.width = 19}
+
+distribution('westernized', "qual")
 
 ```
 
