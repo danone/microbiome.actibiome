@@ -141,6 +141,17 @@ Les échantillons et les patients sont uniques
 
 On a 12661 échantillons = patients uniques
 
+# on sélectionne les microbiotes intestinaux seulement
+
+```{r,message=F,warning=F}
+
+index <- which(map$body_site == 'stool')
+map <- map[index,]
+
+nrow(map)
+
+```
+
 ## Contrôle Qualité des données
 
 ```{r,message=F,warning=F}
@@ -163,11 +174,6 @@ map <- map[apply(map, 1, function(x) !all(x==0)),]
 map$study_condition <- NULL
 map$study_name <- NULL
 map$infant_age <- NULL
-
-# on sélectionne les microbiotes intestinaux seulement
-
-index <- which(map$body_site == 'stool')
-map <- map[index,]
 
 # on réordonne les 2 tableau
 

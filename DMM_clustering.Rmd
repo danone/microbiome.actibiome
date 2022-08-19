@@ -227,6 +227,8 @@ for(i in 1:5) {
 
 ```{r,message=F,warning=F}
 
+number_of_clusters <- as.character(length(fit_genus_list))
+
 ## we will take the number k for each model and for each method
 
 list_k <- vector("list",15)
@@ -249,11 +251,11 @@ test <- data.frame(t(as.data.frame(list_k)))
 
 rownames(test) <- NULL
 
-colnames(test) <- c("method", 1:30, "seed")
+colnames(test) <- c("method", 1:number_of_clusters, "seed")
 
 
 test_unfactored <- test %>%
-  select('1':'30') %>%
+  select('1':as.character(number_of_clusters)) %>%
   varhandle::unfactor(.) %>%
   cbind(method = test$method, . , seed = test$seed)
 rownames(test_unfactored) <- NULL
@@ -265,7 +267,7 @@ mean_rank <- test_unfactored %>%
   select(-seed) %>%
   group_by(method) %>%
   summarise_all(mean) %>%
-  gather(., key="k", value="mean_rank", '1':'30')
+  gather(., key="k", value="mean_rank", '1':as.character(number_of_clusters))
 
 ```
 
@@ -277,7 +279,7 @@ mean_rank <- test_unfactored %>%
 ggplot(mean_rank) +
   geom_line(aes(x=k, y=mean_rank, group=method, color =method)) +
   theme_minimal() +
-  scale_x_discrete(limits = as.character(1:30))
+  scale_x_discrete(limits = as.character(1:number_of_clusters))
 
 ```
 ## Model selection
@@ -442,9 +444,11 @@ no_bifid_ <- no_bifid %>%
 enterotype <- enterotype %>%
   rbind(., no_bifid_)
 
-write.csv(enterotype, file="enterotype_DMM_adults", row.names=TRUE, col.names=TRUE, quote=FALSE)
+name_file <- "enterotype_DMM"
 
-enterotype <- fread("enterotype_DMM") %>%
+write.csv(enterotype, file="enterotype_DMM", row.names=TRUE, col.names=TRUE, quote=FALSE)
+
+enterotype <- fread("enterotype_DMM_adults") %>%
   column_to_rownames("V1")
 
 enterotype$bifidotype <- as.character(enterotype$bifidotype)
@@ -582,19 +586,19 @@ sam_data <- phy_relative@sam_data %>%
 
 ## top x number
 
-x_nb <- "10"
+x_nb <- "15"
 
-colnames(matrix_int) <- 1:(as.numeric(max(enterotype$bifidotype)) -1)
+colnames(matrix_int) <- 1:ncol(matrix_int)
 
 top_5_ab <- matrix_int %>%
   data.frame(.)
-colnames(top_5_ab) <- c( 1:(as.numeric(max(enterotype$bifidotype)) -1))
+colnames(top_5_ab) <- c( 1:ncol(matrix_int))
 
 rownames(top_5_ab) = gsub("B.", "Bifidobacterium", rownames(top_5_ab))
 
 ## we select the commensal + animaliss species
 
-species_to_select <- c("Bifidobacterium  animalis","Bifidobacterium  adolescentis","Bifidobacterium  pseudocatenulatum","Bifidobacterium  dentium","Bifidobacterium  longum","Bifidobacterium  bifidum","Bifidobacterium  catenulatum","Bifidobacterium  angulatum")
+species_to_select <- c("Bifidobacterium  animalis","Bifidobacterium  adolescentis","Bifidobacterium  pseudocatenulatum","Bifidobacterium  dentium","Bifidobacterium  longum","Bifidobacterium  bifidum","Bifidobacterium  catenulatum","Bifidobacterium  angulatum", "Bifidobacterium  breve")
 
 data_sorted <- top_5_ab %>%
   rownames_to_column('species') %>%
@@ -730,13 +734,16 @@ p <- ggplot(data_sorted_abundance, aes(x = bifidotype,
   
 p
 
+size = 3
 
-p <- ggplot(data_sorted_abundance %>% filter(grepl("adolescentis|bifidum|catenulatum|longum|animalis",species)), aes(x = bifidotype,
+p <- ggplot(data_sorted_abundance %>% filter(grepl("adolescentis|bifidum|catenulatum|longum|breve",species)), aes(x = bifidotype,
                        y = abundance, fill = bifidotype)) +
   geom_violin() +
   #geom_boxplot(outlier.shape = NA) +
   theme_minimal() +
   labs(fill= "Bifidotype", x="", y=expression(paste("log"[10],"(Abundance)"))) +
+  stat_compare_means(label.y = 0.3, label.x ="2", size = size) +
+  coord_cartesian(ylim=c(-6,1)) +
   facet_wrap(~species)
   
  # coord_cartesian(ylim = c(0, 0.25))
@@ -788,8 +795,8 @@ diversity <- phy_diversity %>%
   merge(., enterotype, by="sample_id") %>%
   select(-sample_id) %>%
   mutate(grp_healthy = case_when(
-    bifidotype %in% c(1,2,6) ~ "healthy",
-    TRUE ~ "unhealthy" )) 
+    bifidotype %in% c(1,2,6) ~ "high diversity",
+    TRUE ~ "low diversity" )) 
 
 diversity$bifidotype <- as.character(diversity$bifidotype)
 
@@ -798,7 +805,7 @@ p_diversity <- ggplot(diversity, aes(x = bifidotype,
   geom_boxplot(outlier.shape = NA) +
   theme_minimal() +
   stat_compare_means(label.y = 4.5, label.x ="3") +
-  labs(x = "Bifidotype", y = "", title = "Shannon diversity",color= "group healthy") + 
+  labs(x = "Bifidotype", y = "", title = "Shannon diversity",color= "") + 
   coord_cartesian(ylim=c(0.8,4.5)) +
   stat_compare_means(label = "p.signif", method = "wilcox", ref.group = "1", label.y = 4.1)
   
@@ -867,19 +874,6 @@ distribution <- function(category, type){
 
 distribution('westernized', 'qual')
 
-### test
-
-
-  test_data <- phy@sam_data %>%
-    data.frame(.) %>%
-    rownames_to_column("sample_id") %>%
-    merge(., enterotype, by="sample_id") %>%
-    select(bifidotype,all_of(category), sample_id) %>%
-    group_by_all(.) %>%
-    summarise(rows = n(), .groups = 'drop') %>%
-    group_by_at('bifidotype') %>%
-    mutate(percent = rows/sum(rows)) %>%
-    dplyr::rename(., 'category' = category)
 
 ```
 

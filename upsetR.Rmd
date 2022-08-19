@@ -166,18 +166,30 @@ group_by(assigned_species, cazy_family) %>%
   reshape2::dcast(cazy_family~assigned_species, value.var = "n", fill=0) %>%
   UpSetR::upset(nsets = 7)
 ```
+```{r,message=F,warning=F}
+#fig.height=4, fig.width =10
 
+mags_tax_gene_id_eggnog_t <- mags_tax_gene_id_eggnog
+
+# change to B.
+mags_tax_gene_id_eggnog_t$assigned_species <- gsub("Bifidobacterium", "B.",mags_tax_gene_id_eggnog_t$assigned_species)
+
+```
 ## upsetR on eggnogs
 
-```{r,message=F,warning=F,fig.height=4, fig.width = 10}
+```{r,message=F,warning=F}
+#fig.height=4, fig.width =10
 
-
-mags_tax_gene_id_eggnog %>%
+mags_tax_gene_id_eggnog_t %>%
   select(assigned_species, eggNOG_OGs) %>%
 group_by(assigned_species, eggNOG_OGs) %>%
   summarise(n=1) %>%
   reshape2::dcast(eggNOG_OGs~assigned_species, value.var = "n", fill=0) %>%
-  UpSetR::upset(nsets = 6)
+  UpSetR::upset(nsets = 7,
+                sets.x.label = "eggnog counts",
+                mainbar.y.label =  "common eggnog counts",
+                number.angles = 30, point.size = 1, line.size = 0.5,
+                text.scale = c(1.5, 1, 1, 1, 1.5, 1))
 
 
 ```

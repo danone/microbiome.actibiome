@@ -117,7 +117,7 @@ mapp <- sample_data(mapp)
 
 phy <- phyloseq(otu, mapp, taxo)
 
-#save(phy, file="phy_curated_data_after_QC.rda")
+save(phy, file="phy_curated_data_after_QC.rda")
 
 ```
 

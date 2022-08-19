@@ -45,7 +45,7 @@ if(!(name %in% list.files())) {
 
 ## we will merge the bifidotype to the meta_data
 
-bifidotypes <- fread('enterotype_DMM_adult_subjects') %>%
+bifidotypes <- fread('enterotype_DMM') %>%
   select(sample_id, bifidotype)
 
 metadata <- data.frame(sample_data(phy)) %>%
@@ -200,6 +200,12 @@ for (group in groups) {
   order_baseMean[, group] <- res_temp[signif_genera, "baseMean"]
 }
 
+output_LogFC_7 <- output_LogFC
+
+output_FDR_7 <- output_FDR
+
+output_baseMean_7 <- output_baseMean
+
 ```
 
 ## load Deseq results
@@ -213,12 +219,6 @@ name_FC = "output_LogFC_7"
 name_FDR = "output_FDR_7"
 
 name_baseMean <- "output_baseMean_7"
-
-output_LogFC_7 <- output_LogFC
-
-output_FDR_7 <- output_FDR
-
-output_baseMean_7 <- output_baseMean
 
 if(!(name_FC %in% list.files())) {
   
@@ -368,7 +368,10 @@ signif <- complete_data_filtered %>%
 
 ```{r cars,fig.height=8, fig.width=8}
 
-pheatmap(pheat, display_numbers = signif)
+pheatmap(pheat, display_numbers = signif,
+         legend = TRUE,
+         legend_breaks = c(-3, -2, -1, 0, 1, 2, 3, 4),
+         legend_labels = c("-3", "-2", "-1", "0", "1", "2", "3", "title\n"))
 
 ```
 

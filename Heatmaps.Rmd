@@ -33,13 +33,11 @@ source(file = "functions.R")
 
 ```{r,message=F,warning=F}
 
-#load("curated_v3_otu_tax.rda")
+load("curated_v3_otu_tax.rda")
 
-enterotypes <- fread("enterotypes_curated_v3_prediction.csv")[,-1]
+otus <- data.frame(OTU)
 
-#otus <- data.frame(OTU)
-
-#taxo <- data.frame(as.matrix(TAX))
+taxo <- data.frame(as.matrix(TAX))
 
 
 ```
@@ -51,16 +49,10 @@ enterotypes <- fread("enterotypes_curated_v3_prediction.csv")[,-1]
 
 ## on prend les ID en commun
 
-common.ids <- intersect(enterotypes$sample_name, intersect(t(colnames(otus)), sampleMetadata$sample_id))
+common.ids <- intersect(t(colnames(otus)), sampleMetadata$sample_id)
 
-enterotypes <- enterotypes %>%
-  filter(sample_name %in% common.ids)
-
-names(enterotypes)[1] <- 'sample_id'
 
 map <- sampleMetadata
-
-enterotypes$Enterotypes_id <- as.character(enterotypes$Enterotypes_id)
 
 
 otu <- otus[,common.ids]
@@ -68,8 +60,7 @@ otu <- otus[,common.ids]
 tax <- taxo
 
 map <- sampleMetadata %>%
-  filter(sample_id %in% common.ids) %>%
-  inner_join(enterotypes)
+  filter(sample_id %in% common.ids)
 
 
 
@@ -80,8 +71,6 @@ map <- unique(setDT(map)[order(sample_id, -number_reads)], by = "sample_id")
 nrow(map)
 
 ncol(otu)
-
-nrow(enterotypes)
 
 
 # tout est ok !

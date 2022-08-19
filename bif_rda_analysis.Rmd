@@ -270,11 +270,32 @@ pheatmap(bif_mags_one_species,
 ## eggnogs with p.value < 1%, which means they are differentially present/absent in healthy/unhealthy
 ## subjects (bifidotypes) in bifidum mags
 
-eggnogs_related_to_phages <- c("COG0582@1|root,COG0582@2|Bacteria,2HZMA@201174|Actinobacteria,4D0X7@85004|Bifidobacteriales",
+eggnogs_related_to_phages_w <- c("COG0582@1|root,COG0582@2|Bacteria,2HZMA@201174|Actinobacteria,4D0X7@85004|Bifidobacteriales",
 "COG0582@1|root,COG0732@1|root,COG0582@2|Bacteria,COG0732@2|Bacteria,2HUXN@201174|Actinobacteria,4CZ21@85004|Bifidobacteriales",
 "28IBR@1|root,2Z8E5@2|Bacteria,2IF1B@201174|Actinobacteria,4D2Y2@85004|Bifidobacteriales",
 "COG4926@1|root,COG4926@2|Bacteria,2GKQD@201174|Actinobacteria,4CZ3Q@85004|Bifidobacteriales",
 "COG3941@1|root,COG5412@1|root,COG3941@2|Bacteria,COG5412@2|Bacteria,2H75F@201174|Actinobacteria,4CZ35@85004|Bifidobacteriales")
+
+
+eggnogs_related_to_phages<- c("28IBR@1|root,2Z8E5@2|Bacteria,2IF1B@201174|Actinobacteria,4D2Y2@85004|Bifidobacteriales",
+"2B2EW@1|root,31UZI@2|Bacteria,2GWDP@201174|Actinobacteria,4D1SW@85004|Bifidobacteriales",
+"2B5PP@1|root,31YJ5@2|Bacteria,2I00C@201174|Actinobacteria,4D2GW@85004|Bifidobacteriales",
+"2B5R3@1|root,31YKM@2|Bacteria,2H0XN@201174|Actinobacteria,4D2J8@85004|Bifidobacteriales",
+"2EINA@1|root,30Z4H@2|Bacteria,2I8AV@201174|Actinobacteria,4CYPM@84998|Coriobacteriia",
+"arCOG12631@1|root,31Y2B@2|Bacteria,2HZMF@201174|Actinobacteria,4D0XK@85004|Bifidobacteriales",
+"COG0616@1|root,COG0616@2|Bacteria,1MY1I@1224|Proteobacteria,42PFB@68525|delta/epsilon subdivisions,2WSJ6@28221|Deltaproteobacteria",
+"COG1073@1|root,COG1073@2|Bacteria,2HZEB@201174|Actinobacteria,4D02D@85004|Bifidobacteriales",
+"COG1086@1|root,COG2148@1|root,COG1086@2|Bacteria,COG2148@2|Bacteria,2GK0M@201174|Actinobacteria,4CZ4J@85004|Bifidobacteriales",
+"COG1670@1|root,COG1670@2|Bacteria,2HZK6@201174|Actinobacteria,4D0RS@85004|Bifidobacteriales",
+"COG2023@1|root,COG2023@2|Bacteria,2GVUQ@201174|Actinobacteria,4D1JT@85004|Bifidobacteriales",
+"COG2801@1|root,COG2801@2|Bacteria,2GKDY@201174|Actinobacteria,4CW9S@84998|Coriobacteriia",
+"COG2963@1|root,COG2963@2|Bacteria,2HV7B@201174|Actinobacteria,4CWFM@84998|Coriobacteriia",
+"COG3378@1|root,COG3378@2|Bacteria,2IC10@201174|Actinobacteria,4D0F0@85004|Bifidobacteriales",
+"COG3677@1|root,COG3677@2|Bacteria,2IEJD@201174|Actinobacteria,4CZTH@85004|Bifidobacteriales"
+)
+
+
+
 
 ## calculate the prevalence of these eggnogs in mags
 
@@ -306,8 +327,7 @@ pheatmap(bif_mags_one_species,
          clustering_method = "ward.D",
          main = paste0(one_species),
          show_colnames = FALSE, show_rownames = FALSE,
-         annotation_row = test,
-         annotation_col = test)
+         annotation_row = test)
 
 
 
@@ -521,24 +541,30 @@ test <- mags_tax_gene_id_eggnog %>%
   gather("genome_name", "presence") %>%
   ungroup() %>%
   group_by(genome_name) %>%
-  summarise(prevalence_phage = (sum(presence)/n())) %>%
+  summarise(prevalence_phage = (sum(presence))) %>%
   ## add bifidotypes
   merge(bif_mags_dist_annotations_completed, by="genome_name", all.x = TRUE) %>%
   select(genome_name, grp_healthy, prevalence_phage) %>%
   column_to_rownames("genome_name")
+
+test$prevalence_phage <- as.numeric(test$prevalence_phage)
 
 
 ```
 
 ## we will add the predicted values so that the heatmap is completed !
 
-```{r,message=F,warning=F, fig.height=7, fig.width = 8}
+```{r,message=F,warning=F, fig.height=4, fig.width = 7}
 
-pheatmap(bif_mags_one_species,
-         clustering_method = "ward.D",
+colnames(test) <- c("bifidotype", "selected EggnOGs presence")
+
+pheatmap(bif_mags_one_species %>%
+           filter(row.names(.) %in% rownames(test)) %>%
+           select(matches(rownames(test))),
+         clustering_method = "ward.D2",
          main = paste0(one_species),
-         show_colnames = FALSE, show_rownames = FALSE,
-         annotation_row = test,
-         annotation_col = test)
+         show_colnames = FALSE, show_rownames = FALSE, annotation_names_row = FALSE,
+         annotation_row = test)
+         #annotation_col = test)
 
 ```
