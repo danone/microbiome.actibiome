@@ -33,13 +33,11 @@ source(file = "functions.R")
 
 ```{r,message=F,warning=F}
 
-#load("curated_v3_otu_tax.rda")
+load("curated_v3_otu_tax.rda")
 
-enterotypes <- fread("enterotypes_curated_v3_prediction.csv")[,-1]
+otus <- data.frame(OTU)
 
-#otus <- data.frame(OTU)
-
-#taxo <- data.frame(as.matrix(TAX))
+taxo <- data.frame(as.matrix(TAX))
 
 
 ```
@@ -51,16 +49,10 @@ enterotypes <- fread("enterotypes_curated_v3_prediction.csv")[,-1]
 
 ## on prend les ID en commun
 
-common.ids <- intersect(enterotypes$sample_name, intersect(t(colnames(otus)), sampleMetadata$sample_id))
+common.ids <- intersect(t(colnames(otus)), sampleMetadata$sample_id)
 
-enterotypes <- enterotypes %>%
-  filter(sample_name %in% common.ids)
-
-names(enterotypes)[1] <- 'sample_id'
 
 map <- sampleMetadata
-
-enterotypes$Enterotypes_id <- as.character(enterotypes$Enterotypes_id)
 
 
 otu <- otus[,common.ids]
@@ -68,8 +60,7 @@ otu <- otus[,common.ids]
 tax <- taxo
 
 map <- sampleMetadata %>%
-  filter(sample_id %in% common.ids) %>%
-  inner_join(enterotypes)
+  filter(sample_id %in% common.ids)
 
 
 
@@ -80,8 +71,6 @@ map <- unique(setDT(map)[order(sample_id, -number_reads)], by = "sample_id")
 nrow(map)
 
 ncol(otu)
-
-nrow(enterotypes)
 
 
 # tout est ok !
@@ -164,6 +153,11 @@ physeq_norm <- prune_samples(sample_sums(physeq_norm) > 0, physeq_norm)
   
 physeq_norm  <- transform_sample_counts(physeq_norm, function(x) x / sum(x))
 
+## add the westernized column
+
+physeq_norm@sam_data <- sample_data(transform_westernized(data.frame(physeq_norm@sam_data)))
+
+
 ```
 
 
@@ -227,6 +221,8 @@ heatmap_phylo("age_category", "Age Category", category_age, expression(log[10]*'
 
 ```{r,message=F,warning=F}
 
+library("scales")
+
 category <- "age_category"
 
 heatmap_phylo_prevalence <- function(category, x, order, physeq_norm){
@@ -239,8 +235,7 @@ heatmap_phylo_prevalence <- function(category, x, order, physeq_norm){
   tax <- data.frame(physeq_norm@tax_table) %>%
     rownames_to_column(.,"tax") %>%
     select(tax)
-  
-
+    
   #rownames(prevalence_group_mean) <- gsub(".", "|", rownames(prevalence_group_mean))
 
   prevalence_group_mean <- data.frame(t(physeq_norm@otu_table)) %>%
@@ -269,18 +264,33 @@ heatmap_phylo_prevalence <- function(category, x, order, physeq_norm){
   prevalence_group_mean <- otu_table(data.frame(prevalence_group_mean), taxa_are_rows = TRUE)
   mapp <- data.frame(category = order, fill = order) %>%
     column_to_rownames(.,var='category')
+  
 
+      ## change taxa species names Bifidobacterium -> B.
+  taxa_renamed <- data.frame(physeq_norm@tax_table)
+  taxa_renamed$Species <- gsub("Bifidobacterium", "B.",taxa_renamed$Species)
+  taxa_renamed <- as.matrix(taxa_renamed)
+  taxa_renamed <- tax_table(taxa_renamed)
 
-  phy <- phyloseq(prevalence_group_mean, physeq_norm@tax_table, sample_data(mapp))
+  phy <- phyloseq(prevalence_group_mean, taxa_renamed, sample_data(mapp))
+  
 
   phy <- get_top_taxa(phy, 10, discard_other = TRUE)
 
   p <- plot_heatmap(phy,
                     taxa.label = "Species", taxa.order = "Species", 
-                    low="beige", high="red", na.value="beige",sample.order = order)
+                    low="beige", high="red", na.value="beige",sample.order = order,
+                    #trans = identity_trans(),
+                    trans = trans_new(name = "test", transform = function(x) x,
+                              inverse = function(x) x,
+                              domain = c(0, 0.9)),
+                    title = x)
 
-  p$labels$fill <- expression('Prevalence')
-  p$labels$x <- x
+  #p$labels$fill <- expression('Prevalence')
+  p$labels$fill <- ""
+  p$labels$x <- ""
+  p$labels$y <- ""
+  #p$data$Species <- gsub("Bifidobacterium", "B.",p$data$Species)
 
   
   p
@@ -288,17 +298,38 @@ heatmap_phylo_prevalence <- function(category, x, order, physeq_norm){
 }
 
 
-heatmap_phylo_prevalence("age_category", "Age Category", category_age, physeq_norm = subset_samples(physeq_norm, !is.na(age_category)))
 
-heatmap_phylo_prevalence("disease", "Disease", category_disease, physeq_norm = subset_samples(physeq_norm, !is.na(disease)))
+heatmap_phylo_prevalence("age_category", "age category", category_age, physeq_norm = subset_samples(physeq_norm, !is.na(age_category)))
+
+
+heat_age <- heatmap_phylo_prevalence("age_category", "age category", category_age, physeq_norm = subset_samples(physeq_norm, !is.na(age_category)))
+heat_age
+
+heat_disease <- heatmap_phylo_prevalence("disease", "disease", category_disease, physeq_norm = subset_samples(physeq_norm, !is.na(disease)))
+heat_disease
 
 heatmap_phylo_prevalence("gender", "Gender", category_gender, physeq_norm = subset_samples(physeq_norm, !is.na(gender)))
 
-heatmap_phylo_prevalence("non_westernized", "Non Westernized",  category_westernized, physeq_norm = subset_samples(physeq_norm, !is.na(non_westernized)))
+heat_western <- heatmap_phylo_prevalence("westernized", "westernized",  category_westernized, physeq_norm = subset_samples(physeq_norm, !is.na(non_westernized)))
+heat_western
 
 #heatmap_phylo_prevalence("Enterotypes_id", "Enterotype Clusters", as.character(1:24), physeq_norm = physeq_norm)
 
 #physeq_norm = subset_samples(physeq_norm, !is.na(Enterotypes_id))
+
+```
+
+```{r,message=F,warning=F, fig.height = 9, fig.width = 5}
+
+figure <- ggarrange(heat_western, heat_age, heat_disease,
+                    labels = c("D","E","F"),
+                    ncol =1,
+                    nrow = 3,
+                    common.legend = TRUE,
+                    legend = "right")
+
+annotate_figure(figure, top = text_grob("Bifidobacterium species prevalence", size = 18))
+#figure
 
 ```
 

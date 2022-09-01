@@ -62,13 +62,16 @@ nb_mags_species$assigned_species <- gsub("Bifidobacterium","B.",nb_mags_species$
 
 ## Plot the number of mags per species of bifidobacterium
 
-```{r,message=F,warning=F, fig.height=7, fig.width = 12}
+```{r,message=F,warning=F, fig.height=4, fig.width = 8}
 
 ggplot(nb_mags_species, aes(x = assigned_species, y = n, fill = assigned_species)) +  # Plot with values on top
   geom_bar(stat = "identity") +
-  geom_text(aes(label = n), vjust = 0) +
+  geom_text(aes(label = n), vjust = -0.2) +
   scale_x_discrete(guide = guide_axis(n.dodge=2)) +
-  labs( y = "number of MAGS", x = "", fill = "Bifidobacterium assigned species")
+  labs( y = "number of MAGS", x = "", fill = "Bifidobacterium assigned species") +
+  theme_minimal() +
+  theme(legend.position = "none")
+  
 
 ```
 
@@ -185,7 +188,7 @@ prevalence_cazy_species %>%
    filter(max>0.05, min < 0.20 ) %>%
     reshape2::dcast(assigned_species~CAZy, value.var = "p", fill=0) %>%
    tibble::column_to_rownames("assigned_species") %>%
-   as.matrix() %>%
+   as.matrix()
 
 ## plot eggnog functions
 heatmap_prevalence_eggnog_species <- prevalence_eggnog_species %>%

@@ -59,17 +59,21 @@ load(file = "phy_curated_data_after_QC.rda")
 
 phy <- subset_samples(phy, body_site == "stool")
 
+nrow(data.frame(phy@sam_data))
+
 ## diversity vegan
 
 phy_diversity <- estimate_richness(phy, split = TRUE, measures = "Shannon")
 
-phy <- subset_samples(phy, age_category == "adult")
+#phy <- subset_samples(phy, age_category == "adult")
 
 #phy <- subset_samples(phy, disease == "Control")
 
 phy <- subset_samples(phy, antibiotics_current_use == "no")
 
-phy <- subset_samples(phy, westernized == "yes")
+nrow(data.frame(phy@sam_data))
+
+#phy <- subset_samples(phy, westernized == "yes")
 
 ```
 
@@ -218,9 +222,12 @@ for(i in 1:5) {
 }
 
 ```
+
 ## Model fit
 
 ```{r,message=F,warning=F}
+
+number_of_clusters <- as.character(length(fit_genus_list))
 
 ## we will take the number k for each model and for each method
 
@@ -244,11 +251,11 @@ test <- data.frame(t(as.data.frame(list_k)))
 
 rownames(test) <- NULL
 
-colnames(test) <- c("method", 1:30, "seed")
+colnames(test) <- c("method", 1:number_of_clusters, "seed")
 
 
 test_unfactored <- test %>%
-  select('1':'30') %>%
+  select('1':as.character(number_of_clusters)) %>%
   varhandle::unfactor(.) %>%
   cbind(method = test$method, . , seed = test$seed)
 rownames(test_unfactored) <- NULL
@@ -260,7 +267,7 @@ mean_rank <- test_unfactored %>%
   select(-seed) %>%
   group_by(method) %>%
   summarise_all(mean) %>%
-  gather(., key="k", value="mean_rank", '1':'30')
+  gather(., key="k", value="mean_rank", '1':as.character(number_of_clusters))
 
 ```
 
@@ -272,7 +279,7 @@ mean_rank <- test_unfactored %>%
 ggplot(mean_rank) +
   geom_line(aes(x=k, y=mean_rank, group=method, color =method)) +
   theme_minimal() +
-  scale_x_discrete(limits = as.character(1:30))
+  scale_x_discrete(limits = as.character(1:number_of_clusters))
 
 ```
 ## Model selection
@@ -384,7 +391,7 @@ mins_bic <- binded %>%
   select(Fit, k)
 
 
-ggplot(binded) +
+nb_clusters <- ggplot(binded) +
   geom_line(aes(x=k, y=Fit, group=type_check, color =type_check)) +
   theme_minimal() +
   scale_x_continuous(breaks = seq(0, max(binded$k) + 5, by = 5))  +
@@ -404,6 +411,8 @@ ggplot(binded) +
   coord_cartesian(xlim =c(min(binded$k),max(binded$k) + 6))  +
   
   labs(x = "Number of Dirichlet Component - K", y = "Model Fit", title = "", color = "")
+
+nb_clusters
 
 ```
 
@@ -435,9 +444,11 @@ no_bifid_ <- no_bifid %>%
 enterotype <- enterotype %>%
   rbind(., no_bifid_)
 
-write.csv(enterotype, file="enterotype_DMM_adults", row.names=TRUE, col.names=TRUE, quote=FALSE)
+name_file <- "enterotype_DMM"
 
-enterotype <- fread("enterotype_DMM") %>%
+write.csv(enterotype, file="enterotype_DMM", row.names=TRUE, col.names=TRUE, quote=FALSE)
+
+enterotype <- fread("enterotype_DMM_adults") %>%
   column_to_rownames("V1")
 
 enterotype$bifidotype <- as.character(enterotype$bifidotype)
@@ -457,11 +468,28 @@ distribution <- enterotype %>%
 
 distribution$. <- as.character(distribution$.)
 
-ggplot(distribution, aes(x = ., y = Freq, fill = .)) +  # Plot with values on top
+distr_clusters <- ggplot(distribution, aes(x = ., y = Freq, fill = .)) +  # Plot with values on top
   geom_bar(stat = "identity") +
-  geom_text(aes(label = Freq), vjust = 0) +
-  labs( y = "count") +
+  geom_text(aes(label = Freq, vjust=1.5),
+            size=5,
+            color="white") +
+  labs( y = "Subject count", x = "Bifidotype", fill = "Bifidotype") +
+  theme_minimal() +
   scale_x_discrete(limits = as.character(1:max(distribution$.)))
+
+distr_clusters
+
+```
+
+## Clusters distributions
+
+```{r,message=F,warning=F, fig.width=14, fig.height = 4}
+
+figure <- ggarrange(nb_clusters, distr_clusters, ncol = 2,
+                              labels = c("A","B"),
+                    nrow = 1)
+
+figure
 
 ```
 
@@ -482,7 +510,7 @@ otu <- data.frame(phy_relative@otu_table)
 
 ## Heatmaps
 
-```{r,message=F,warning=F,fig.width=15, fig.height=8}
+```{r,message=F,warning=F,fig.width=9, fig.height=9}
 
 matrix_int <- fitted(best, scale= TRUE) %>%
   log10(.) %>%
@@ -497,7 +525,7 @@ colnames(matrix_int) <- paste("cluster ",1:ncol(matrix_int))
 rownames(matrix_int) <- gsub("Bifidobacterium","B. ",rownames(matrix_int))
 
 
-my_palette <- colorRampPalette(c("red", "yellow", "green"))(n = 299)
+my_palette <- colorRampPalette(c("white", "yellow", "red"))(n = 400)
 
 col_breaks = c(seq(0.81,1,length=100), # for red
 seq(0,0.8,length=100),  # for yellow
@@ -513,9 +541,14 @@ heatmap.2(matrix_int,
   trace="none",         # turns off trace lines inside the heat map
   margins = c(12,9),     # widens margins around plot
   col=my_palette,       # use on color palette defined earlier
-  key.title = "",
-  key.xlab = expression(paste("log"[10],"(Value)")))           # turn off column clustering
+  key.title = "", symm=F,symkey=F,symbreaks=F, scale="none",
+  ## change legend scale size
+  lhei=c(1,9), keysize=2, key.par = list(cex=0.5),
+  key.xlab = "")
+  #key.xlab = expression(paste("log"[10],"(Value)")))           # turn off column clustering
 
+#matrix_int %>%
+  #pheatmap::pheatmap(show_colnames = FALSE, main = "eggnog annotations")
 
 
 ```
@@ -551,17 +584,21 @@ sam_data <- phy_relative@sam_data %>%
 
 ```{r,message=F,warning=F}
 
-colnames(matrix_int) <- 1:(as.numeric(max(enterotype$bifidotype)) -1)
+## top x number
+
+x_nb <- "15"
+
+colnames(matrix_int) <- 1:ncol(matrix_int)
 
 top_5_ab <- matrix_int %>%
   data.frame(.)
-colnames(top_5_ab) <- c( 1:(as.numeric(max(enterotype$bifidotype)) -1))
+colnames(top_5_ab) <- c( 1:ncol(matrix_int))
 
 rownames(top_5_ab) = gsub("B.", "Bifidobacterium", rownames(top_5_ab))
 
 ## we select the commensal + animaliss species
 
-species_to_select <- c("Bifidobacterium  animalis","Bifidobacterium  adolescentis","Bifidobacterium  pseudocatenulatum","Bifidobacterium  dentium","Bifidobacterium  longum","Bifidobacterium  bifidum","Bifidobacterium  catenulatum","Bifidobacterium  angulatum")
+species_to_select <- c("Bifidobacterium  animalis","Bifidobacterium  adolescentis","Bifidobacterium  pseudocatenulatum","Bifidobacterium  dentium","Bifidobacterium  longum","Bifidobacterium  bifidum","Bifidobacterium  catenulatum","Bifidobacterium  angulatum", "Bifidobacterium  breve")
 
 data_sorted <- top_5_ab %>%
   rownames_to_column('species') %>%
@@ -577,7 +614,7 @@ top_5 <- top_5_ab %>%
   rownames_to_column('species') %>%
   gather(key="cluster", value="value", 2:(ncol(matrix_int)+1)) %>%
   group_by(cluster) %>%
-  top_n(5, value) %>%
+  top_n(x_nb, value) %>%
   select(-value) %>%
   dplyr::rename('bifidotype' = 'cluster')
 top_5$bifidotype = gsub("cluster", "", top_5$bifidotype)
@@ -697,13 +734,16 @@ p <- ggplot(data_sorted_abundance, aes(x = bifidotype,
   
 p
 
+size = 3
 
-p <- ggplot(top_5_abundance, aes(x = bifidotype,
+p <- ggplot(data_sorted_abundance %>% filter(grepl("adolescentis|bifidum|catenulatum|longum|breve",species)), aes(x = bifidotype,
                        y = abundance, fill = bifidotype)) +
-  geom_boxplot() +
+  geom_violin() +
   #geom_boxplot(outlier.shape = NA) +
   theme_minimal() +
   labs(fill= "Bifidotype", x="", y=expression(paste("log"[10],"(Abundance)"))) +
+  stat_compare_means(label.y = 0.3, label.x ="2", size = size) +
+  coord_cartesian(ylim=c(-6,1)) +
   facet_wrap(~species)
   
  # coord_cartesian(ylim = c(0, 0.25))
@@ -714,24 +754,33 @@ p
 ## et utiliser scale = free-Y
 ```
 
+## tests
+
+```{r,message=F,warning=F}
+
+test <- top_5_abundance %>% filter(species %in% c("B. angulatum"))
+
+```
+
 ## Heatmaps
 
 ```{r,message=F,warning=F}
 
 sam_data$bifidotype <- as.character(sam_data$bifidotype)
   
-p <- ggplot(sam_data, aes(x = bifidotype,
-                       y = bif_rel, fill=bifidotype))+ geom_boxplot(outlier.shape = NA) 
-  labs(x = NULL, y = NULL, title = "Relative Abundance of Bifidobacterium",fill= "Cluster") + 
+p_relative_abundace <- ggplot(sam_data, aes(x = bifidotype,
+                       y = bif_rel, fill=bifidotype))+
+  geom_boxplot(outlier.shape = NA) + 
+  labs(x = "Bifidotype", y = NULL, title = "Relative abundance of Bifidobacterium",fill= "Bifidotype") + 
   coord_cartesian(ylim=c(0,0.46)) +
   scale_x_discrete(limits = as.character(1:max(sam_data$bifidotype))) +
-  stat_compare_means(label.y = 0.64, label.x ="3") +
-  stat_compare_means(label = "p.signif", method = "wilcox", ref.group = "1", label.y = 0.6) +
-    theme_minimal()+
-  coord_cartesian(ylim = c(0, 0.46))
+  stat_compare_means(label.y = 0.45, label.x ="3") +
+    theme_minimal() +
+  theme(legend.position = "none")
+  #stat_compare_means(label = "p.signif", method = "wilcox", ref.group = "5", label.y = 0.42)
   
 
-p
+p_relative_abundace
 
 
 ```
@@ -744,19 +793,36 @@ p
 diversity <- phy_diversity %>%
   rownames_to_column("sample_id") %>%
   merge(., enterotype, by="sample_id") %>%
-  select(-sample_id)
+  select(-sample_id) %>%
+  mutate(grp_healthy = case_when(
+    bifidotype %in% c(1,2,6) ~ "high diversity",
+    TRUE ~ "low diversity" )) 
 
 diversity$bifidotype <- as.character(diversity$bifidotype)
 
-p <- ggplot(diversity, aes(x = bifidotype,
-                       y = Shannon)) +
+p_diversity <- ggplot(diversity, aes(x = bifidotype,
+                       y = Shannon, color = grp_healthy)) +
   geom_boxplot(outlier.shape = NA) +
   theme_minimal() +
   stat_compare_means(label.y = 4.5, label.x ="3") +
-  stat_compare_means(label = "p.signif", method = "wilcox", ref.group = "1", label.y = 4.1) +
-  labs(fill= "bifidotype")
+  labs(x = "Bifidotype", y = "", title = "Shannon diversity",color= "") + 
+  coord_cartesian(ylim=c(0.8,4.5)) +
+  stat_compare_means(label = "p.signif", method = "wilcox", ref.group = "1", label.y = 4.1)
   
-p
+p_diversity
+
+
+```
+
+## Boxplot Shannon
+
+```{r,message=F,warning=F, fig.width = 10, fig.height = 4}
+
+figure <- ggarrange(p_relative_abundace, p_diversity,
+                    labels = c("A","B"),
+                    ncol =2,
+                    nrow = 1)
+figure
 
 
 ```
@@ -765,6 +831,9 @@ p
 
 ```{r,message=F,warning=F, fig.height=9, fig.width = 15}
 
+## set the geom text size to adjust graph
+
+size_geom_text <- 2.5
 
 distribution <- function(category, type){
   
@@ -783,10 +852,15 @@ distribution <- function(category, type){
   
     p2 <- ggplot(map, aes(x = bifidotype,y=percent, fill = category)) +
     geom_bar(stat="identity", position=position_dodge()) +
-    geom_text(aes(label = paste0(rows)),vjust=-2.6, color="black",
-            position = position_dodge(0.9), size=3.5) +
-      geom_text(aes(label = paste0(round(percent*100,1), "%")),vjust=-0.6, color="black",
-            position = position_dodge(0.9), size=3.5) +
+    geom_text(aes(label = paste0(rows)),vjust=-2, color="black",
+            position = position_dodge(0.9),
+            #size=size_geom_text) +
+            size=ifelse(map$percent>0.035, size_geom_text,0)) +
+      geom_text(aes(label = paste0(round(percent*100,0), "%")),vjust=-0.6, color="black",
+            position = position_dodge(0.9),
+            ## add a condition, if 
+            #size=size_geom_text) +
+            size=ifelse(map$percent>0.035, size_geom_text,0)) +
     #geom_text(aes(label = paste0(round(percent*100,1),"%"), vjust = 1), position = position_fill(vjust = 0.5), size =3) +
     theme_classic() +
     scale_fill_brewer(type = type) +
@@ -800,15 +874,58 @@ distribution <- function(category, type){
 
 distribution('westernized', 'qual')
 
+
 ```
 
 ## Description des clusters
 
-```{r,message=F,warning=F, fig.height=9, fig.width = 19}
+```{r,message=F,warning=F, fig.height=4, fig.width = 6}
 
-distribution('disease', "qual")
+distr_disease <- distribution('disease', "qual") +
+  labs(x = "Bifidotype", y = "", title = "Subject distribution according to their disease",fill= "disease") +
+  coord_cartesian(ylim=c(0,1.02))
+
+distr_disease
 
 ```
+## Description des clusters
+
+```{r,message=F,warning=F, fig.height=4, fig.width = 6}
+
+distr_age <- distribution('age_category', "qual") +
+  labs(x = "Bifidotype", y = "", title = "Subject distribution according to their age",fill= "age category") +
+  coord_cartesian(ylim=c(0,0.95))
+
+
+distr_age
+
+```
+## Description des clusters
+
+```{r,message=F,warning=F, fig.height=4, fig.width = 6}
+
+distr_westernized <- distribution('westernized', "qual") +
+  labs(x = "Bifidotype", y = "", title = "Subject distribution according to their lifestyle",fill= "westernized") +
+  coord_cartesian(ylim=c(0,1.03))
+
+
+distr_westernized
+
+```
+
+## Boxplot Shannon
+
+```{r,message=F,warning=F, fig.width = 6, fig.height = 8}
+
+figure <- ggarrange(distr_disease, distr_westernized,
+                    labels = c("A","B"),
+                    ncol =1,
+                    nrow = 2)
+figure
+
+
+```
+
 
 ## table de contingence enterotypes * bifidotypes
 

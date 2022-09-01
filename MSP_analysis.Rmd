@@ -416,12 +416,15 @@ bifidotypes_phages <- bifidotypes_prediction %>%
 
 ## load and process data
 ```{r,message=F,warning=F}
+
+
 library(readxl)
 
 
 metadata_mutrition_msp <- read_excel("MI_metadata_extraction.xlsx")
 
 sample_metadata_msp <- read_excel("sample_metadata_msp.xlsx")
+
 
 ## extract shannon data
 
@@ -442,19 +445,17 @@ shannon_diversity_bifidotypes <- sample_metadata_msp %>%
 library(ggplot2)
 library(ggpubr)
 
-p <- ggboxplot(shannon_diversity_bifidotypes, x="assigned_bifidotype", y="Species_Shannon", fill="assigned_bifidotype",outlier.shape = NA )
+p <- ggboxplot(shannon_diversity_bifidotypes, x="bifidotype", y="Species_Shannon", fill="bifidotype",outlier.shape = NA )
   
 p <- p + scale_fill_brewer(palette="Dark2") +
-  
   theme_minimal() +
-  
-  labs(x = NULL, y = NULL, title = "Shannon Diversity",fill= "Bifidotype")# + 
-  #coord_cartesian(ylim=c(0,0.3))
+  labs(x = NULL, y = NULL, title = "Shannon Diversity",fill= "Bifidotype") # + 
+  # coord_cartesian(ylim=c(0,0.3))
 
-p + stat_compare_means(label.y = 0.28)
+p +
+  stat_compare_means(label.y = 4.8)  +
+  stat_compare_means(label = "p.signif", method = "wilcox", ref.group = "1", label.y = 4.5)
+  
 
 
 ```
-
-## load data
-```{r,message=F,warning=F}

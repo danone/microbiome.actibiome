@@ -5,7 +5,7 @@ output: html_notebook
 
 
 
-```{r}
+```{r,message=F,warning=F}
 
 library(dplyr)
 
@@ -13,21 +13,20 @@ library(dplyr)
 
 
 
-```{r}
+```{r,message=F,warning=F}
 
 load("data-raw/MilieuInterieur/MilieuInterieur_df_long.rda")
 
 
-
 ```
 
-```{r}
+```{r,message=F,warning=F}
 
 df_long %>% head()
 
 ```
 
-```{r}
+```{r,message=F,warning=F}
 
 microbiome_resources = "/lustre/workgroups/microbiome_resources/reference/IGC/annotation/"
 
@@ -46,15 +45,17 @@ igc_eggnog = readr::read_tsv("/lustre/workgroups/microbiome_resources/reference/
                              skip = 2, col_names = TRUE)
 
 
-eggnog_diff_healthy = readr::read_csv2("data-raw/association_eggnogs_metadata_grp_healthy.csv") %>% filter(p.value < 0.1)
+eggnog_diff_healthy = readr::read_csv2("data-raw/association_eggnogs_metadata_grp_healthy.csv") %>% filter(p.value < 0.1) %>%
+  filter(prevalence_unhealthy > prevalence_healthy)
 
+head(eggnog_diff_healthy)
 
 genes_richness = readr::read_tsv("data-raw/MilieuInterieur/MilieuInterieur_genes_richness.tsv")
 
 
 ```
 
-```{r}
+```{r,message=F,warning=F}
 
 msp_tax %>%
   filter(gtdb_classification %in% grep("bifidum", msp_tax$gtdb_classification, value = TRUE)) %>%
@@ -73,20 +74,33 @@ msp_healthy_associated_genes %>%
 
 ```
 
+```{r,message=F,warning=F}
 
-```{r}
+head(msp_healthy_associated_genes)
 
-fake_sample = data.frame(X1="fake", count=0, sample = df_long %>% pull(sample) %>% unique) # to keep all samples
+```
 
-df_long %>% 
+```{r,message=F,warning=F}
+
+#fake_sample = data.frame(X1="fake", count=0, sample = df_long %>% pull(sample) %>% unique) # to keep all samples
+
+df_healthy_associated_genes_cast <- df_long %>% 
   filter(X1 %in% msp_healthy_associated_genes$gene_name) %>%
   rbind(fake_sample) %>%
   reshape2::dcast(X1~sample, value.var = "count", fill=0) %>%
   filter(X1 != "fake") -> df_healthy_associated_genes_cast
 
 
+head(df_long_filtered)
+
+df_healthy_associated_genes_cast <- df_long_filtered %>%
+  reshape2::dcast(X1~sample, value.var = "count", fill=0) %>%
+  filter(X1 != "fake")
 
 
+```
+
+``````{r,message=F,warning=F}
 df_long %>% 
   filter(X1 %in% msp_healthy_associated_genes$gene_name) %>%
   merge(genes_richness, by="sample") -> bifidum_genes_selected
@@ -100,11 +114,13 @@ bifidum_genes_selected %>%
   filter(X1 != "fake") -> df_healthy_associated_genes_cast_prop
 
 
+head(df_healthy_associated_genes_cast)
+
+write.csv2(df_healthy_associated_genes_cast, "df_healthy_msp.csv", quote = F, col.names = TRUE, row.names = TRUE)
 
 ```
 
-
-```{r}
+```{r,message=F,warning=F}
 
 
 df_healthy_associated_genes_cast_prop %>%
@@ -114,6 +130,9 @@ df_healthy_associated_genes_cast_prop %>%
 
 
 ```
+
+
+
 ```{r}
 
 readr::read_tsv("data-raw/MilieuInterieur/MilieuInterieur_df_motus_long.tsv") %>%

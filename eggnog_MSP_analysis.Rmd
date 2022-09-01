@@ -34,6 +34,11 @@ source(file = "functions.R")
 
 ```{r,message=F,warning=F}
 
+microbiome_resources = "/lustre/workgroups/microbiome_resources/reference/IGC/annotation/"
+
+
+msp_genes = readr::read_tsv(paste0(microbiome_resources,"msp.tsv"))
+
 ## merge with the couple msp/sample
 msp_sample_count <- readr::read_tsv("data-raw/MilieuInterieur/MilieuInterieur_samples_msp_module_counts.tsv")
 
@@ -205,7 +210,7 @@ eggnog_bifidum_healthy <- eggnog_grp_healthy %>%
   filter(p.value < 0.10) %>%
   filter(assigned_species %in% "Bifidobacterium bifidum") %>%
   ## filter phage eggnog
-  filter(str_detect(Description, "Phage") | str_detect(Description, "phage")) %>%
+  #filter(str_detect(Description, "Phage") | str_detect(Description, "phage")) %>%
   ## filter the eggnog with higher prevalence in unhealthy
   #filter(prevalence_unhealthy > prevalence_healthy) %>%
   select(assigned_species, variable, eggnog) %>%
@@ -243,8 +248,7 @@ gene_to_filter <- msp_gene %>%
 
 ## gene count per sample
 count_gene_interest <- msp_gene_richness %>%
-  merge(MSP_df_filtered %>% filter(gene_id %in% gene_to_filter), by = sample, all=TRUE) %>%
-  MSP_df_filtered
+  merge(MSP_df_filtered %>% filter(gene_id %in% gene_to_filter), by = sample, all=TRUE)
 
 
 
