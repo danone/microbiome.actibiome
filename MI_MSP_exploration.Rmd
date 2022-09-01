@@ -49,6 +49,9 @@ igc_eggnog = readr::read_tsv("/lustre/workgroups/microbiome_resources/reference/
 eggnog_diff_healthy = readr::read_csv2("data-raw/association_eggnogs_metadata_grp_healthy.csv") %>% filter(p.value < 0.1)
 
 
+genes_richness = readr::read_tsv("data-raw/MilieuInterieur/MilieuInterieur_genes_richness.tsv")
+
+
 ```
 
 ```{r}
@@ -63,6 +66,10 @@ msp_tax %>%
 #   filter(gtdb_classification %in% grep("Bifidobacterium", msp_tax$gtdb_classification, value = TRUE))
 
 
+msp_healthy_associated_genes %>%
+  filter(prevalence_unhealthy>prevalence_healthy) %>%
+  filter(module != "core")
+
 
 ```
 
@@ -73,13 +80,24 @@ fake_sample = data.frame(X1="fake", count=0, sample = df_long %>% pull(sample) %
 
 df_long %>% 
   filter(X1 %in% msp_healthy_associated_genes$gene_name) %>%
-  #rbind(fake_sample) %>%
+  rbind(fake_sample) %>%
   reshape2::dcast(X1~sample, value.var = "count", fill=0) %>%
   filter(X1 != "fake") -> df_healthy_associated_genes_cast
 
 
 
 
+df_long %>% 
+  filter(X1 %in% msp_healthy_associated_genes$gene_name) %>%
+  merge(genes_richness, by="sample") -> bifidum_genes_selected
+
+
+bifidum_genes_selected %>%
+  mutate(count = count/read_mapped_counts) %>%
+  select(sample,X1,count) %>%
+  rbind(fake_sample) %>%
+  reshape2::dcast(X1~sample, value.var = "count", fill=0) %>%
+  filter(X1 != "fake") -> df_healthy_associated_genes_cast_prop
 
 
 
@@ -89,12 +107,85 @@ df_long %>%
 ```{r}
 
 
-df_healthy_associated_genes_cast %>%
+df_healthy_associated_genes_cast_prop %>%
   tibble::column_to_rownames("X1") %>%
   as.matrix %>%
   heatmap()
 
 
 ```
+```{r}
 
+readr::read_tsv("data-raw/MilieuInterieur/MilieuInterieur_df_motus_long.tsv") %>%
+  group_by(sample) %>%
+  mutate(depth = sum(count)) %>%
+  mutate(count=count/depth) %>%
+  reshape2::dcast(`#consensus_taxonomy`~sample, value.var="count", fill=0) -> motus_prop_cast
+  
+motus_bifidum_name = "Bifidobacterium bifidum [ref_mOTU_v25_03116]"
+
+motus_prop_cast %>%
+  filter(`#consensus_taxonomy` == motus_bifidum_name) %>%
+  tibble::column_to_rownames("#consensus_taxonomy") %>% 
+  t %>%
+  merge(df_healthy_associated_genes_cast_prop %>%
+  tibble::column_to_rownames("X1") %>% t, by="row.names") %>%
+  filter(`Bifidobacterium bifidum [ref_mOTU_v25_03116]` > 10^-4) %>%
+  mutate_if(is.numeric, function(x) {ifelse(x>0,1,0)} ) %>%
+  select(-2) %>%
+  dplyr::rename(sample=Row.names) %>%
+  reshape2::melt(id.vars="sample") %>%
+  merge(genes_richness, by="sample") %>%
+  nest(data = -variable) %>% 
+  mutate(
+    test = map(data, ~ cor.test(.x$value, .x$genes_richness_1M), method="spearman"), # S3 list-col
+    tidied = map(test, tidy)
+  ) %>% 
+  unnest(tidied)
+  
+motus_prop_cast %>%
+  filter(`#consensus_taxonomy` == motus_bifidum_name) %>%
+  tibble::column_to_rownames("#consensus_taxonomy") %>% 
+  t %>%
+  merge(df_healthy_associated_genes_cast_prop %>%
+  tibble::column_to_rownames("X1") %>% t, by="row.names") %>%
+  filter(`Bifidobacterium bifidum [ref_mOTU_v25_03116]` > 10^-4) %>%
+  mutate_if(is.numeric, function(x) {ifelse(x>0,1,0)} ) %>%
+  select(-2) %>%
+  dplyr::rename(sample=Row.names) %>%
+  tibble::column_to_rownames("sample") %>%
+  select(
+    any_of(msp_healthy_associated_genes %>%
+  filter(prevalence_unhealthy>prevalence_healthy) %>%
+  filter(module != "core") %>% pull(gene_name) )) %>%
+  as.matrix %>%
+  heatmap(col = cm.colors(256), 
+          scale = "none", 
+          distfun = function(x) dist(x,method = 'binary'), 
+          hclustfun = function(x) hclust(x,method = 'ward.D'))
+
+
+motus_prop_cast %>%
+  tibble::column_to_rownames("#consensus_taxonomy") %>%
+  t %>%
+  cor(.,df_healthy_associated_genes_cast_prop %>%
+  tibble::column_to_rownames("X1") %>%
+  as.matrix %>% t, method="spearman") -> motus_bifidum_cor 
+
+
+#motus_bifidum_cor 
+
+
+heatmap(motus_bifidum_cor, col = cm.colors(256))
+
+```
+
+```{r}
+
+motus_bifidum_cor %>%
+  reshape2::melt() %>%
+  filter(value < -0.2)
+
+
+```
 
