@@ -101,6 +101,15 @@ if(which_study == "cur"){
   pseq <- subset_samples(pseq, age_category == "adult")
   
 }
+
+if(which_study == "pre"){
+  ## we exclude predict data
+  
+  pseq <- subset_samples(pseq, PMID == 33432175)
+  
+  
+}
+
 ```
 
 ## File names
@@ -264,9 +273,11 @@ rownames(test_unfactored) <- NULL
 ## calcul des rangs moyens
 
 mean_rank <- test_unfactored %>%
+  mutate_at(-1, as.numeric) %>%
   select(-seed) %>%
   group_by(method) %>%
-  summarise_all(mean) %>%
+  summarise(across(everything(), mean)) %>%
+  #summarise_all(mean) %>%
   gather(., key="k", value="mean_rank", '1':as.character(number_of_clusters))
 
 ```
@@ -448,7 +459,7 @@ name_file <- "enterotype_DMM"
 
 write.csv(enterotype, file="enterotype_DMM", row.names=TRUE, col.names=TRUE, quote=FALSE)
 
-enterotype <- fread("enterotype_DMM_adults") %>%
+enterotype <- fread("enterotype_DMM") %>%
   column_to_rownames("V1")
 
 enterotype$bifidotype <- as.character(enterotype$bifidotype)
