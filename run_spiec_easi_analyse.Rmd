@@ -307,14 +307,14 @@ species_linked <- lien %>%
   ### this line allows to select more specific species
   #filter(grepl("longum|bifidum|breve|adolescentis|catenulatum|pseudocatenulatum|animalis|thermophilum", V1))
   
-species_linked <- unique(c(unfactor(unique(species_linked$V1)), unfactor(unique(species_linked$V2))))
+species_linked <- unique(c((unique(species_linked$V1)), (unique(species_linked$V2))))
 
 species_not_linked <- lien %>%
   as.data.frame(.) %>%
   filter(!V1 %in% species_linked) %>%
   filter(!V2 %in% species_linked)
   
-species_not_linked <- unique(c(unfactor(unique(species_not_linked$V1)), unfactor(unique(species_not_linked$V2))))
+species_not_linked <- unique(c((unique(species_not_linked$V1)), (unique(species_not_linked$V2))))
 
 
 ## delete the species not linked with bifid

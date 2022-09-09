@@ -377,7 +377,7 @@ pheatmap(pheat, display_numbers = signif,
 
 ## Plotting heatmap
 
-```{r cars,fig.height=20, fig.width=15}
+```{r cars,fig.height=20, fig.width=20}
 
 
 pheatmap <- pheatmap(output_LogFC,

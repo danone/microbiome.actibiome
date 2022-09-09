@@ -13,6 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r,message=F,warning=F}
 
+library(tidyverse)
 library(data.table)
 library(devtools)
 library(microbiome)
@@ -26,7 +27,7 @@ library(rstatix)
 library(ggpubr)
 library(ggplot2)
 library(tidyverse)
-library("readxl")
+#library(readxl)
 library("optparse")
 library(varhandle)
 library(tidyr)
@@ -36,7 +37,7 @@ library(gplots)
 
 source(file = "functions.R")
 
-setwd("/home/ladeirru/GitHub/microbiome.actibiome")
+#setwd("/home/ladeirru/GitHub/microbiome.actibiome")
 
 ```
 
@@ -83,13 +84,18 @@ nrow(data.frame(phy@sam_data))
 
 pseq <- subset_taxa(phy, Genus %in% c("Bifidobacterium"))
 
+#pseq = phy
 
-which_study <- readline(prompt=paste("Do you want to cluster the data on ASNICAR (Predict) or whole CURATED data without predict ? : ", "pre - PREDICT", "cur - CURATED minus PREDICT","who - WHOLE CURATED DATA SET", "6clusters - 6 clusters model","who - WHOLE CURATED DATA SET", "", sep="\n"))
+# 
+# which_study <- readline(prompt=paste("Do you want to cluster the data on ASNICAR (Predict) or whole CURATED data without predict ? : ", "pre - PREDICT", "cur - CURATED minus PREDICT","who - WHOLE CURATED DATA SET", "6clusters - 6 clusters model","who - WHOLE CURATED DATA SET", "", sep="\n"))
+# 
+# while(!which_study %in% c("cur", "pre", "who", "6clusters")){
+#   which_study <- readline(prompt=paste("Error, please redo : ", "pre - PREDICT", "cur -
+#                                        CURATED minus PREDICT","who - WHOLE CURATED DATA SET","6clusters - 6 clusters model", "", sep="\n"))
+# }
 
-while(!which_study %in% c("cur", "pre", "who", "6clusters")){
-  which_study <- readline(prompt=paste("Error, please redo : ", "pre - PREDICT", "cur -
-                                       CURATED minus PREDICT","who - WHOLE CURATED DATA SET","6clusters - 6 clusters model", "", sep="\n"))
-}
+which_study = "pre"
+
 
 if(which_study == "cur"){
   ## we exclude predict data
@@ -101,6 +107,20 @@ if(which_study == "cur"){
   pseq <- subset_samples(pseq, age_category == "adult")
   
 }
+
+
+if(which_study == "pre"){
+  ## we exclude predict data
+  
+  pseq <- subset_samples(pseq, PMID == 33432175)
+  
+  ## keep only adults subjects
+  
+  pseq <- subset_samples(pseq, age_category == "adult")
+  
+}
+
+
 ```
 
 ## File names
@@ -179,15 +199,15 @@ fit_genus_list = vector("list",5)
 set.seed(seed)
 seeds=sample(1:1000, 5)
 
-setwd("/home/ladeirru/GitHub/microbiome.actibiome")
+#setwd("/home/ladeirru/GitHub/microbiome.actibiome")
 
-if(!(dmm_name %in% list.files("./DMM_files/")) & !(seeds_list_name %in% list.files())) {
+if(!(dmm_name %in% list.files("./DMM_files/")) & !(seeds_list_name %in% list.files("./DMM_files/"))) {
 
   for(i in 1:5) {
 
     set.seed(seeds[i])
 
-    fit_genus <- mclapply(1:30, dmn, count=count, verbose=FALSE, mc.cores=12)
+    fit_genus <- parallel::mclapply(1:30, dmn, count=count, verbose=FALSE, mc.cores=12)
 
     fit_genus_list[[i]] = fit_genus
     
@@ -227,7 +247,7 @@ for(i in 1:5) {
 
 ```{r,message=F,warning=F}
 
-number_of_clusters <- as.character(length(fit_genus_list))
+number_of_clusters <- as.character(length(fit_genus_list[[1]]))
 
 ## we will take the number k for each model and for each method
 
@@ -265,8 +285,13 @@ rownames(test_unfactored) <- NULL
 
 mean_rank <- test_unfactored %>%
   select(-seed) %>%
+  mutate_at(2:31, as.numeric) %>%
+  #reshape2::melt(id.vars="method") %>%
+  #dplyr::rename(k=variable) %>%
+  #mutate(value=as.numeric(value)) %>%
   group_by(method) %>%
   summarise_all(mean) %>%
+  #summarise(value=mean(value)) %>%
   gather(., key="k", value="mean_rank", '1':as.character(number_of_clusters))
 
 ```
@@ -347,7 +372,7 @@ pi_theta$cluster <- as.character(pi_theta$cluster)
 
 set.seed(seeds)
 
-fit_genus_k1 <- mclapply(1:1, dmn, count=count, verbose=FALSE, mc.cores=12)
+fit_genus_k1 <- parallel::mclapply(1:1, dmn, count=count, verbose=FALSE, mc.cores=12)
 
 ```
 
