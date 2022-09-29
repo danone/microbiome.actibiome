@@ -317,24 +317,48 @@ complete_data_filtered <- complete_data %>%
 
 ```{r cars,fig.height=10, fig.width=10}
 
-ggplot(data = complete_data_filtered, aes(x=Var2, y=Var1, fill=Log2FC)) + 
+heatmap.2(as.matrix(pheat)) -> deseq_clust
+
+
+deseq2_heatmap_plot <-
+deseq_clust$carpet %>%
+  t %>%
+  reshape2::melt() %>%
+  merge(complete_data_filtered %>% dplyr::rename(pvalue=value), by=c("Var1","Var2")) %>%
+ggplot(aes(x=Var2, y=Var1, fill=Log2FC)) + 
   geom_tile(color="white") +
   scale_fill_distiller(direction = -1, palette = "RdBu", limits=c(floor(min(complete_data_filtered$Log2FC)), ceiling(max(complete_data_filtered$Log2FC))), name="Effect size\nLog2FC") +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),
-        axis.text.y = element_text(size=10),
+        axis.text.y = element_text(size=10, face="italic"),
         axis.title = element_blank(),
-        plot.title=element_text(hjust=0.5, face="bold", size=15),
-        plot.margin = unit(c(10,0,0,0), "pt")) +
-  coord_fixed() +
+        plot.title=element_text(hjust=0.5, face="bold", size=15)) + #,
+        #plot.margin = unit(c(10,0,0,0), "pt")) +
+  #coord_fixed() +
   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
-  geom_point(aes(size=value, color=color)) +
+  geom_point(aes(size=pvalue, color=color)) +
   labs(size = "Evidence\n-log10(p-value)", color="Significance") +
   scale_color_manual(values=colors_dots) +
-  scale_size(limits=c(0,30),breaks=c(5,10,15,23),range=c(1,4))
+  scale_size(limits=c(0,30),breaks=c(5,10,15,23),range=c(1,4)) 
+
+
+deseq2_heatmap_plot
 
 
 ```
+
+## Figure for manuscript
+```{r fig.height=8, fig.width=15}
+
+
+
+
+((p_relative_abundance/p_diversity2)|deseq2_heatmap_plot) + plot_annotation(tag_levels = "A")
+
+ggsave(filename = "deseq_abund_alpha_bif_partition.pdf")
+
+```
+
 
 
 ## Prepare data for a pheatmap for better representation
@@ -371,13 +395,17 @@ signif <- complete_data_filtered %>%
 pheatmap(pheat, display_numbers = signif,
          legend = TRUE,
          legend_breaks = c(-3, -2, -1, 0, 1, 2, 3, 4),
-         legend_labels = c("-3", "-2", "-1", "0", "1", "2", "3", "title\n"))
+         legend_labels = c("-3", "-2", "-1", "0", "1", "2", "3", "title\n")) -> deseq_pheatmap
+
+
+
+heatmap.2(as.matrix(pheat)) -> deseq_clust
 
 ```
 
 ## Plotting heatmap
 
-```{r cars,fig.height=20, fig.width=20}
+```{r cars, eval=FALSE, fig.height=20, fig.width=20, include=FALSE}
 
 
 pheatmap <- pheatmap(output_LogFC,
